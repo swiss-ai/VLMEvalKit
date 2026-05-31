@@ -2530,17 +2530,28 @@ class VLMBlind(ImageMCQDataset):
         'VLMBlind': 'e0f960236afe08f9fa48e8ccc908b2a9',
     }
 
-    def extract_content_in_braces(self, input_str):
-        import re
-        pattern = r'\{(.*?)\}'
-        match = re.search(pattern, input_str)
-        if match:
-            return match.group(1)
-        else:
-            return ""
+    @staticmethod
+    def _extract_value(text):
+        m = re.search(r'\{(.*?)\}', text)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r'(\d+)', text)
+        if m:
+            return m.group(1)
+        return text.strip()
 
-    def compare_string_with_values(self, input_str, target_values):
-        import re
+    @staticmethod
+    def _extract_letter(text):
+        m = re.search(r'\{([a-zA-Z])\}', text)
+        if m:
+            return m.group(1).strip().lower()
+        m = re.search(r'\b([a-zA-Z])\b', text)
+        if m:
+            return m.group(1).lower()
+        return text.strip().lower()
+
+    @staticmethod
+    def _extract_grid_dims(text, target_values):
         try:
             target_nums = [int(x.strip()) for x in target_values.split(',')]
             if len(target_nums) != 2:
@@ -2548,62 +2559,48 @@ class VLMBlind(ImageMCQDataset):
         except Exception:
             return False
 
-        rows_match = re.search(r'[Rr]ows?(?:[^{}]*)\{(\d+)\}', input_str)
-        cols_match = re.search(r'[Cc]olumns?(?:[^{}]*)\{(\d+)\}', input_str)
-
+        rows_match = re.search(r'[Rr]ows?\D*(\d+)', text)
+        cols_match = re.search(r'[Cc]olumns?\D*(\d+)', text)
         if rows_match and cols_match:
-            input_nums = [int(rows_match.group(1)), int(cols_match.group(1))]
-            return input_nums == target_nums
+            return [int(rows_match.group(1)), int(cols_match.group(1))] == target_nums
 
-        pattern2 = r'\((\d+),\s*(\d+)\)'
-        match2 = re.search(pattern2, input_str)
-        if match2:
-            input_nums = [int(match2.group(1)), int(match2.group(2))]
-            return input_nums == target_nums
+        for pattern in (r'\((\d+),\s*(\d+)\)', r'\{(\d+),\s*(\d+)\}'):
+            m = re.search(pattern, text)
+            if m:
+                return [int(m.group(1)), int(m.group(2))] == target_nums
         return False
 
     def evaluate(self, eval_file, **judge_kwargs):
         data = load(eval_file)
-        task_stats = {}
+        # Per-task scorer: (prediction, ground_truth) -> bool.
+        value_match = lambda p, g: self._extract_value(p) == g
+        scorers = {
+            **dict.fromkeys(
+                (
+                    "Subway Connections",
+                    "Nested Squares",
+                    "Line Plot Intersections",
+                    "Olympic Counting - Pentagons",
+                    "Olympic Counting - Circles",
+                ),
+                value_match,
+            ),
+            "Counting Grid - Word Grids": self._extract_grid_dims,
+            "Counting Grid - Blank Grids": self._extract_grid_dims,
+            "Touching Circles": lambda p, g: g.lower() in ("yes", "no") and g.lower() in p.lower(),
+            "Circled Letter": lambda p, g: self._extract_letter(p) == g.lower(),
+        }
 
-        for index, data_item in data.iterrows():
+        task_stats = defaultdict(lambda: {'correct': 0, 'total': 0})
+        for _, data_item in data.iterrows():
             task = data_item["task"]
-            if task not in task_stats:
-                task_stats[task] = {'correct': 0, 'total': 0}
-            task_stats[task]['total'] += 1
-            if data_item["task"] == "Subway Connections":
-                ans = self.extract_content_in_braces(data_item["prediction"])
-                if ans == data_item["answers"]:
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Nested Squares":
-                ans = self.extract_content_in_braces(data_item["prediction"])
-                if ans == data_item["answers"]:
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Line Plot Intersections":
-                ans = self.extract_content_in_braces(data_item["prediction"])
-                if ans == data_item["answers"]:
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Touching Circles":
-                if str.lower(data_item["answers"]) in str.lower(data_item["prediction"]):
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Counting Grid - Word Grids":
-                if self.compare_string_with_values(data_item["prediction"], data_item["answers"]):
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Counting Grid - Blank Grids":
-                if self.compare_string_with_values(data_item["prediction"], data_item["answers"]):
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Olympic Counting - Pentagons":
-                if data_item["answers"] in data_item["prediction"]:
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Olympic Counting - Circles":
-                if data_item["answers"] in data_item["prediction"]:
-                    task_stats[task]['correct'] += 1
-            elif data_item["task"] == "Circled Letter":
-                ans = self.extract_content_in_braces(data_item["prediction"])
-                if ans == data_item["answers"]:
-                    task_stats[task]['correct'] += 1
+            stats = task_stats[task]
+            stats['total'] += 1
+            scorer = scorers.get(task)
+            if scorer and scorer(str(data_item["prediction"]), str(data_item["answers"]).strip()):
+                stats['correct'] += 1
 
-        accuracy_dict = {task: [stats['correct'] / stats['total']] for task, stats in sorted(task_stats.items())}
+        accuracy_dict = {task: [s['correct'] / s['total']] for task, s in sorted(task_stats.items())}
         accuracy_df = pd.DataFrame(accuracy_dict)
         score_file = get_intermediate_file_path(eval_file, '_acc', 'csv')
         dump(accuracy_df, score_file)

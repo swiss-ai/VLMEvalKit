@@ -2,7 +2,6 @@ import ast
 import json
 import os
 
-import decord
 import numpy as np
 from huggingface_hub import snapshot_download
 from PIL import Image
@@ -130,6 +129,8 @@ Respond with only the letter (A, B, C, or D) of the correct option.
         return dict(data_file=variant_data_file, root=dataset_path)
 
     def save_video_frames(self, video_path, video_llm=False):
+        import decord
+
         vid_path = os.path.join(self.data_root, video_path)
 
         vid = decord.VideoReader(vid_path)

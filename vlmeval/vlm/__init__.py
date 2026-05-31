@@ -6,6 +6,7 @@ from .aki import AKI
 from .aria import Aria
 from .bagel_umm import Bagel
 from .base import BaseModel
+from .apertus_1p5 import Apertus1p5
 from .bunnyllama3 import BunnyLLama3
 from .cambrian import Cambrian
 from .cambrian_s import CambrianS

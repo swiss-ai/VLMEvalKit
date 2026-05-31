@@ -9,7 +9,6 @@ import nltk
 import numpy as np
 from nltk.metrics import f_measure, precision, recall
 from nltk.translate import meteor_score
-from rouge import Rouge
 
 from vlmeval.smp import dump, load
 from vlmeval.smp.file import get_intermediate_file_path
@@ -47,6 +46,8 @@ def _cal_ocr_metrics(pred: str, gt: str) -> Dict[str, float]:
 
 
 def _cal_summary_metrics(pred: str, gt: str) -> Dict[str, float]:
+    from rouge import Rouge
+
     """Calculate ROUGE-L metrics, matching official implementation."""
     rouge = Rouge()
     # Official code: rouge.get_scores(hyps=hypothesis, refs=reference)

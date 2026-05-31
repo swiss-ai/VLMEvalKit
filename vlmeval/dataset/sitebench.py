@@ -5,7 +5,6 @@ import string
 import warnings
 from collections import OrderedDict
 
-import decord
 import numpy as np
 import pandas as pd
 from huggingface_hub import snapshot_download
@@ -359,6 +358,8 @@ class SiteBenchVideo(SiteBenchBase, VideoBaseDataset):
         return dict(data_file=new_data_path, root=dataset_path)
 
     def save_video_frames(self, video, video_llm=False):
+        import decord
+
         vid_path = video
         rel_video_path = os.path.relpath(video, self.dataset_path)
 

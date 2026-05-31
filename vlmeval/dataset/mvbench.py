@@ -8,7 +8,6 @@ import zipfile
 
 import cv2
 import huggingface_hub
-import imageio
 import numpy as np
 import pandas as pd
 import portalocker
@@ -237,6 +236,8 @@ Based on your observations, select the best option that accurately addresses the
         return torch_imgs
 
     def read_gif(self, video_path, bound=None, fps=25):
+        import imageio
+
         gif = imageio.get_reader(video_path)
         max_frame = len(gif) - 1
 
