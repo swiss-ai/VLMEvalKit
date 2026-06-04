@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --job-name=vlmeval-apertus
-#SBATCH --environment=/iopsstor/scratch/cscs/xyixuan/apertus/VLMEvalKit/scripts/apertus-vllm/apertus-vllm-vlmevalkit-prod.toml
+#SBATCH --environment=/capstor/store/cscs/swissai/infra01/vision-datasets/tomls/apertus-vllm/apertus-vllm-vision-eval-prod.toml
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --reservation=SD-69241-apertus-1-5-0
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-REPO_DIR="/iopsstor/scratch/cscs/xyixuan/apertus/VLMEvalKit"
+REPO_DIR="/workspace/VLMEvalKit"
 MODEL="Apertus-1p5-8B"
 DATASET="3DSRBench"
 MODE="all"
