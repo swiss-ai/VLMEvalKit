@@ -2658,17 +2658,24 @@ _APERTUS_SFT256K_PREFIX = (
     "/capstor/store/cscs/swissai/infra01/apertus_1p5/hf_checkpoints/"
     "ap1p5-8b-sft-256k-adam-lr6e-5-constant-128n_"
 )
+_APERTUS_SHARED_KW = {"skip_mm_profiling": True}
 # Each entry: (name, extra Apertus1p5 kwargs). Names in _APERTUS_COT also get a
 # `<name>-CoT` mirror with enable_thinking=True. Adding a new SFT iteration is
 # one line in _APERTUS_VARIANTS; toggling CoT is one set-membership edit.
 _APERTUS_VARIANTS = [
-    ("Apertus-1p5-8B", {}),
+    ("Apertus-1p5-8B", dict(_APERTUS_SHARED_KW)),
     *[
-        (f"Apertus-1p5-8B-sft-16k-{it}", {"model_path": _APERTUS_SFT16K_PREFIX + it})
+        (
+            f"Apertus-1p5-8B-sft-16k-{it}",
+            {**_APERTUS_SHARED_KW, "model_path": _APERTUS_SFT16K_PREFIX + it},
+        )
         for it in ("it19532", "it38036")
     ],
     *[
-        (f"Apertus-1p5-8B-sft-256k-{it}", {"model_path": _APERTUS_SFT256K_PREFIX + it})
+        (
+            f"Apertus-1p5-8B-sft-256k-{it}",
+            {**_APERTUS_SHARED_KW, "model_path": _APERTUS_SFT256K_PREFIX + it},
+        )
         for it in ("600", "1200", "1800", "2200")
     ],
 ]

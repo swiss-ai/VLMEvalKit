@@ -30,9 +30,13 @@ MODE="all"
 NODES="${NODES:-1}"
 NUM_PROCESSES="${NUM_PROCESSES:-4}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
+SKIP_MM_PROFILING="${VLLM_APERTUS_SKIP_MM_PROFILING:-}"
 ENABLE_IMAGE_TOKEN_CACHE="${ENABLE_IMAGE_TOKEN_CACHE:-true}"
 IMAGE_TOKEN_CACHE_MODE="${IMAGE_TOKEN_CACHE_MODE:-fill}"
 IMAGE_TOKEN_CACHE_LOCAL_COPY="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_COPY:-0}"
+IMAGE_TOKEN_CACHE_PRELOAD="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_PRELOAD:-}"
+IMAGE_TOKEN_CACHE_READONLY="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_READONLY:-}"
+IMAGE_TOKEN_CACHE_WRITE_MISSES="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_WRITE_MISSES:-}"
 IMAGE_TOKEN_CACHE_COLLISION_GUARD="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_COLLISION_GUARD:-0}"
 SBATCH_TIME="${SBATCH_TIME:-04:00:00}"
 MAIN_PROCESS_PORT="${MAIN_PROCESS_PORT:-29541}"
@@ -55,6 +59,8 @@ Options:
                                     Total world size = nodes * num-processes.
   --num-processes <int>             DP workers per node (= GPUs per node). Default: 4.
   --batch-size <int>                Logged for parity with lmms-eval; tokenizer batch is fixed to 1 in code.
+  --skip-mm-profiling
+                                    Keep Apertus vLLM skip_mm_profiling enabled.
   --work-base <path>                Root for VLMEvalKit outputs.
   --response-cache <path>           SQLite response cache root.
   --image-token-cache-base <path>   Apertus image-token cache base. Default: response-cache/image_token_cache.
@@ -104,6 +110,10 @@ while [[ $# -gt 0 ]]; do
       NUM_PROCESSES="$2"; shift 2 ;;
     --batch-size)
       BATCH_SIZE="$2"; shift 2 ;;
+    --skip-mm-profiling)
+      SKIP_MM_PROFILING=true; shift ;;
+    --no-skip-mm-profiling)
+      SKIP_MM_PROFILING=false; shift ;;
     --work-base)
       WORK_BASE="$2"; shift 2 ;;
     --response-cache)
@@ -144,7 +154,16 @@ esac
 # Validate; the mode -> {preload, readonly, write-misses} mapping lives in
 # eval_job.slurm (single source of truth).
 case "${IMAGE_TOKEN_CACHE_MODE}" in
-  fill|readonly) ;;
+  fill)
+    : "${IMAGE_TOKEN_CACHE_PRELOAD:=0}"
+    : "${IMAGE_TOKEN_CACHE_READONLY:=0}"
+    : "${IMAGE_TOKEN_CACHE_WRITE_MISSES:=1}"
+    ;;
+  readonly)
+    : "${IMAGE_TOKEN_CACHE_PRELOAD:=1}"
+    : "${IMAGE_TOKEN_CACHE_READONLY:=1}"
+    : "${IMAGE_TOKEN_CACHE_WRITE_MISSES:=0}"
+    ;;
   *) echo "--image-token-cache-mode must be fill or readonly (got: ${IMAGE_TOKEN_CACHE_MODE})" >&2; exit 1 ;;
 esac
 
@@ -178,6 +197,10 @@ export LD_LIBRARY_PATH="/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD
 
 mkdir -p "${LOG_DIR}" "${RESPONSE_CACHE}" "${LMU_DATA}" "${WORK_BASE}" "${RUNTIME_CACHE}"
 
+if [[ -n "${SKIP_MM_PROFILING}" ]]; then
+  export VLLM_APERTUS_SKIP_MM_PROFILING="${SKIP_MM_PROFILING}"
+fi
+
 echo "========================================"
 echo "Apertus VLMEvalKit submit"
 echo "  repo:           ${REPO_DIR}"
@@ -188,6 +211,7 @@ echo "  mode:           ${MODE}"
 echo "  nodes:          ${NODES}"
 echo "  dp workers:     ${NUM_PROCESSES} per node (world_size = ${NODES} * ${NUM_PROCESSES})"
 echo "  batch size:     ${BATCH_SIZE}"
+echo "  skip mm prof:   ${VLLM_APERTUS_SKIP_MM_PROFILING:-<default true>}"
 echo "  response cache: ${RESPONSE_CACHE}"
 echo "  image cache:    ${ENABLE_IMAGE_TOKEN_CACHE} ${IMAGE_TOKEN_CACHE_MODE} (${IMAGE_TOKEN_CACHE_BASE})"
 echo "  LMUData:        ${LMU_DATA}"
@@ -224,6 +248,9 @@ while IFS= read -r DATASET; do
       --enable-image-token-cache "${ENABLE_IMAGE_TOKEN_CACHE}"
       --image-token-cache-mode "${IMAGE_TOKEN_CACHE_MODE}"
       --image-token-cache-base "${IMAGE_TOKEN_CACHE_BASE}"
+      --image-token-cache-preload "${IMAGE_TOKEN_CACHE_PRELOAD}"
+      --image-token-cache-readonly "${IMAGE_TOKEN_CACHE_READONLY}"
+      --image-token-cache-write-misses "${IMAGE_TOKEN_CACHE_WRITE_MISSES}"
       --image-token-cache-collision-guard "${IMAGE_TOKEN_CACHE_COLLISION_GUARD}"
       --image-token-cache-local-copy "${IMAGE_TOKEN_CACHE_LOCAL_COPY}"
       --lmu-data "${LMU_DATA}"

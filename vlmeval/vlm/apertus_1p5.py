@@ -24,6 +24,13 @@ _THINKING_SUFFIXES = ("</think>", "<|inner_suffix|>")
 _SPECIAL_TOKEN_RE = re.compile(r"<\|[^|]+\|>|</?think>")
 
 
+def _env_bool(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
 class Apertus1p5(BaseModel):
     """Apertus 1.5 8B evaluated via vLLM with correct tokenization."""
 
@@ -43,6 +50,7 @@ class Apertus1p5(BaseModel):
         gpu_memory_utilization=0.6,
         max_model_len=131072,
         enable_thinking=False,
+        skip_mm_profiling=None,
         **kwargs,
     ):
         super().__init__()
@@ -50,9 +58,12 @@ class Apertus1p5(BaseModel):
         # introspection — config.py registration, tests — does not require
         # transformers + vllm to be installed.
         from transformers import AutoTokenizer
-        from vllm import LLM, SamplingParams
+        from vllm import LLM
 
         self.enable_thinking = enable_thinking
+        if skip_mm_profiling is None:
+            skip_mm_profiling = _env_bool("VLLM_APERTUS_SKIP_MM_PROFILING", True)
+        self.skip_mm_profiling = skip_mm_profiling
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_path, trust_remote_code=False
         )
@@ -81,17 +92,18 @@ class Apertus1p5(BaseModel):
                 max_model_len=max_model_len,
                 hf_overrides={"max_position_embeddings": max_model_len},
                 limit_mm_per_prompt={"image": 24},
+                skip_mm_profiling=self.skip_mm_profiling,
             )
 
-        # All fields are fixed at construction; build SamplingParams once
-        # rather than per-row in generate_inner.
-        self.sampling_params = SamplingParams(
-            temperature=temperature,
-            top_p=top_p,
-            seed=0,
-            max_tokens=max_new_tokens,
-            skip_special_tokens=not enable_thinking,
-        )
+        # Keep generation settings as a plain dict so tests can stub the
+        # wrapper without importing vLLM's SamplingParams class.
+        self.generate_kwargs = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "seed": 0,
+            "max_tokens": max_new_tokens,
+            "skip_special_tokens": not enable_thinking,
+        }
         self.model_path = model_path
         self.tokenizer_path = tokenizer_path
         self.max_model_len = max_model_len
@@ -138,12 +150,17 @@ class Apertus1p5(BaseModel):
         return _SPECIAL_TOKEN_RE.sub("", text).strip()
 
     def generate_inner(self, message, dataset=None):
+        from vllm import SamplingParams
+
         msgs, images = self._build_messages(message)
         prompt_data = {"prompt_token_ids": self._tokenize_messages(msgs)}
         if images:
             prompt_data["multi_modal_data"] = {"image": images}
 
-        outputs = self.llm.generate(prompts=[prompt_data], sampling_params=self.sampling_params)
+        outputs = self.llm.generate(
+            prompts=[prompt_data],
+            sampling_params=SamplingParams(**self.generate_kwargs),
+        )
         generated_text = outputs[0].outputs[0].text
 
         if self.enable_thinking:

@@ -97,6 +97,27 @@ def test_eval_dry_run_can_use_readonly_image_token_cache(tmp_path):
     assert "--image-token-cache-preload 1" in result.stdout
 
 
+def test_eval_dry_run_accepts_skip_mm_profiling_flag(tmp_path):
+    benchmark_root = tmp_path / "benchmark"
+    env = {
+        "BENCHMARK_ROOT": str(benchmark_root),
+    }
+
+    result = run_script(
+        [
+            "bash",
+            "scripts/apertus-vllm/eval.sh",
+            "--data",
+            "3DSRBench",
+            "--skip-mm-profiling",
+            "--dry-run",
+        ],
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_eval_job_help_documents_image_token_cache_flags():
     result = run_script(["bash", "scripts/apertus-vllm/eval_job.slurm", "--help"])
 

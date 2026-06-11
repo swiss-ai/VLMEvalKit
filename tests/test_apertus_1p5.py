@@ -48,12 +48,22 @@ class FakeTokenizer:
         self.template_calls = []
         self.tokenize_calls = []
 
-    def apply_chat_template(self, messages, add_generation_prompt, tokenize, chat_template):
+    def apply_chat_template(
+        self,
+        messages,
+        add_generation_prompt,
+        tokenize,
+        chat_template,
+        enable_thinking=None,
+        **kwargs,
+    ):
         self.template_calls.append({
             "messages": messages,
             "add_generation_prompt": add_generation_prompt,
             "tokenize": tokenize,
             "chat_template": chat_template,
+            "enable_thinking": enable_thinking,
+            "kwargs": kwargs,
         })
         return "<bos> rendered prompt"
 
@@ -100,6 +110,7 @@ class TestApertus1p5Tokenization(unittest.TestCase):
         fake_transformers.AutoTokenizer = FakeAutoTokenizer
         fake_vllm = types.ModuleType("vllm")
         fake_vllm.LLM = FakeLLM
+        fake_vllm.SamplingParams = lambda **kwargs: kwargs
 
         torchrun_env = {
             "RANK": "2",
@@ -131,12 +142,41 @@ class TestApertus1p5Tokenization(unittest.TestCase):
         self.assertEqual(seen_env["CUDA_VISIBLE_DEVICES"], "2")
         self.assertEqual(seen_env["VLLM_HOST_IP"], "127.0.0.1")
         self.assertEqual(seen_kwargs["gpu_memory_utilization"], 0.6)
+        self.assertTrue(seen_kwargs["skip_mm_profiling"])
+
+    def test_llm_construction_honors_skip_mm_profiling_env_override(self):
+        module = load_apertus_module()
+        seen_kwargs = {}
+
+        class FakeAutoTokenizer:
+
+            @staticmethod
+            def from_pretrained(tokenizer_path, trust_remote_code):
+                return FakeTokenizer()
+
+        class FakeLLM:
+
+            def __init__(self, **kwargs):
+                seen_kwargs.update(kwargs)
+
+        fake_transformers = types.ModuleType("transformers")
+        fake_transformers.AutoTokenizer = FakeAutoTokenizer
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.LLM = FakeLLM
+        fake_vllm.SamplingParams = lambda **kwargs: kwargs
+
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers, "vllm": fake_vllm}):
+            with mock.patch.dict(os.environ, {"VLLM_APERTUS_SKIP_MM_PROFILING": "false"}, clear=False):
+                module.Apertus1p5(model_path="model", tokenizer_path="tokenizer", chat_template=None)
+
+        self.assertFalse(seen_kwargs["skip_mm_profiling"])
 
     def test_tokenize_messages_uses_single_prompt_and_no_added_special_tokens(self):
         module = load_apertus_module()
         model = object.__new__(module.Apertus1p5)
         model.tokenizer = FakeTokenizer()
         model.chat_template_str = "template"
+        model.enable_thinking = False
 
         token_ids = model._tokenize_messages([{"role": "user", "content": [{"type": "text", "text": "hello"}]}])
 
@@ -172,7 +212,8 @@ class TestApertus1p5Tokenization(unittest.TestCase):
     def test_generate_inner_sends_one_prompt_token_id_request_to_vllm(self):
         module = load_apertus_module()
         model = object.__new__(module.Apertus1p5)
-        model.generate_kwargs = {"temperature": 0.0, "max_new_tokens": 8}
+        model.generate_kwargs = {"temperature": 0.0, "max_new_tokens": 8, "skip_special_tokens": True}
+        model.enable_thinking = False
         prompts_seen = []
 
         def fake_build_messages(message):
