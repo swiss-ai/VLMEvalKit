@@ -2650,63 +2650,29 @@ nanovlm_series = {
     "nanoVLM-230M-8k": partial(vlm.NanoVLM, model_path="lusxvr/nanoVLM-230M-8k"),
 }
 
-_APERTUS_SFT16K_PREFIX = (
-    "/capstor/store/cscs/swissai/infra01/hf-checkpoints/"
-    "Apertus-1p5-8B-sft-16k-lr6e-5-constant-"
-)
-_APERTUS_SFT256K_PREFIX = (
-    "/capstor/store/cscs/swissai/infra01/apertus_1p5/hf_checkpoints/"
-    "ap1p5-8b-sft-256k-adam-lr6e-5-constant-128n_"
-)
-_APERTUS_SHARED_KW = {"skip_mm_profiling": True}
-# Each entry: (name, extra Apertus1p5 kwargs). Names in _APERTUS_COT also get a
-# `<name>-CoT` mirror with enable_thinking=True. Adding a new SFT iteration is
-# one line in _APERTUS_VARIANTS; toggling CoT is one set-membership edit.
-_APERTUS_VARIANTS = [
-    ("Apertus-1p5-8B", dict(_APERTUS_SHARED_KW)),
-    *[
-        (
-            f"Apertus-1p5-8B-sft-16k-{it}",
-            {**_APERTUS_SHARED_KW, "model_path": _APERTUS_SFT16K_PREFIX + it},
-        )
-        for it in ("it19532", "it38036")
-    ],
-    *[
-        (
-            f"Apertus-1p5-8B-sft-256k-{it}",
-            {**_APERTUS_SHARED_KW, "model_path": _APERTUS_SFT256K_PREFIX + it},
-        )
-        for it in ("600", "1200", "1800", "2200")
-    ],
-]
-# Names in this set get a `<name>-CoT` and `<name>-CoT-T6` mirror; everything
-# else only gets the non-thinking variant. CoT needs a larger decode budget
-# (MMMU CoT spirals truncate at the 4096-token default and collapse accuracy
-# by ~14 pts). -CoT-T6 swaps greedy for the Qwen3/R1 thinking-sampling recipe
-# (T=0.6, top_p=0.95), which breaks "Wait, wait, wait..." loops without
-# retraining.
-_APERTUS_THINKING = {
-    "Apertus-1p5-8B",
-    "Apertus-1p5-8B-sft-16k-it38036",
-    "Apertus-1p5-8B-sft-256k-600",
-    "Apertus-1p5-8B-sft-256k-1200",
-    "Apertus-1p5-8B-sft-256k-1800",
-    "Apertus-1p5-8B-sft-256k-2200",
-}
-_APERTUS_COT_KW = {"enable_thinking": True, "max_new_tokens": 16384}
-_APERTUS_RECIPES = [
-    ("-CoT", _APERTUS_COT_KW),
-    ("-CoT-T6", {**_APERTUS_COT_KW, "temperature": 0.6, "top_p": 0.95}),
-]
-
-apertus_series = {
-    **{name: partial(vlm.Apertus1p5, **kw) for name, kw in _APERTUS_VARIANTS},
-    **{
-        f"{name}{suffix}": partial(vlm.Apertus1p5, **recipe_kw, **kw)
-        for name, kw in _APERTUS_VARIANTS if name in _APERTUS_THINKING
-        for suffix, recipe_kw in _APERTUS_RECIPES
-    },
-}
+# Apertus 1.5 is registered ONCE by architecture, not per checkpoint. The
+# launcher passes the checkpoint by path: APERTUS_RUN_NAME is the supported_VLM
+# key (the run identity in the output tree), APERTUS_MODEL_PATH the checkpoint;
+# thinking and sampling come from the launcher CLI via env.
+apertus_series = {}
+_apertus_run = os.environ.get("APERTUS_RUN_NAME")
+if _apertus_run:
+    _apertus_kw = {}
+    for _env, _kw, _cast in (
+        ("APERTUS_MODEL_PATH", "model_path", str),
+        ("APERTUS_TOKENIZER_PATH", "tokenizer_path", str),
+        ("APERTUS_TEMPERATURE", "temperature", float),
+        ("APERTUS_TOP_P", "top_p", float),
+        ("APERTUS_REPETITION_PENALTY", "repetition_penalty", float),
+        ("APERTUS_MAX_NEW_TOKENS", "max_new_tokens", int),
+        ("APERTUS_MAX_MODEL_LEN", "max_model_len", int),
+    ):
+        _val = os.environ.get(_env)
+        if _val:
+            _apertus_kw[_kw] = _cast(_val)
+    if os.environ.get("APERTUS_ENABLE_THINKING", "").strip().lower() in ("1", "true", "t", "yes", "y", "on"):
+        _apertus_kw["enable_thinking"] = True
+    apertus_series[_apertus_run] = partial(vlm.Apertus1p5, **_apertus_kw)
 
 model_groups.append(nanovlm_series)
 model_groups.append(apertus_series)
