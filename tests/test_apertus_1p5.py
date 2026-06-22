@@ -212,9 +212,10 @@ class TestApertus1p5Tokenization(unittest.TestCase):
     def test_generate_inner_sends_one_prompt_token_id_request_to_vllm(self):
         module = load_apertus_module()
         model = object.__new__(module.Apertus1p5)
-        model.generate_kwargs = {"temperature": 0.0, "max_new_tokens": 8, "skip_special_tokens": True}
+        model.sampling_params = SimpleNamespace()
         model.enable_thinking = False
         prompts_seen = []
+        sampling_seen = []
 
         def fake_build_messages(message):
             return [{"role": "user", "content": [{"type": "text", "text": "hello"}]}], []
@@ -226,18 +227,16 @@ class TestApertus1p5Tokenization(unittest.TestCase):
 
             def generate(self, prompts, sampling_params):
                 prompts_seen.extend(prompts)
+                sampling_seen.append(sampling_params)
                 return [SimpleNamespace(outputs=[SimpleNamespace(text="answer")])]
 
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.SamplingParams = lambda **kwargs: kwargs
         model._build_messages = fake_build_messages
         model._tokenize_messages = fake_tokenize_messages
         model.llm = FakeLLM()
 
-        with mock.patch.dict(sys.modules, {"vllm": fake_vllm}):
-            self.assertEqual(model.generate_inner([{"type": "text", "value": "hello"}]), "answer")
-
+        self.assertEqual(model.generate_inner([{"type": "text", "value": "hello"}]), "answer")
         self.assertEqual(prompts_seen, [{"prompt_token_ids": [11, 22, 33]}])
+        self.assertIs(sampling_seen[0], model.sampling_params)
 
 
 if __name__ == "__main__":

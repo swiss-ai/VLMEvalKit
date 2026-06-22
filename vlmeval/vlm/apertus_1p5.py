@@ -46,6 +46,7 @@ class Apertus1p5(BaseModel):
         max_new_tokens=4096,
         temperature=0.0,
         top_p=1.0,
+        repetition_penalty=1.0,
         tp_size=1,
         gpu_memory_utilization=0.6,
         max_model_len=131072,
@@ -58,7 +59,7 @@ class Apertus1p5(BaseModel):
         # introspection — config.py registration, tests — does not require
         # transformers + vllm to be installed.
         from transformers import AutoTokenizer
-        from vllm import LLM
+        from vllm import LLM, SamplingParams
 
         self.enable_thinking = enable_thinking
         if skip_mm_profiling is None:
@@ -91,27 +92,56 @@ class Apertus1p5(BaseModel):
                 trust_remote_code=False,
                 max_model_len=max_model_len,
                 hf_overrides={"max_position_embeddings": max_model_len},
-                limit_mm_per_prompt={"image": 24},
+                limit_mm_per_prompt={"image": 32},
                 skip_mm_profiling=self.skip_mm_profiling,
             )
 
-        # Keep generation settings as a plain dict so tests can stub the
-        # wrapper without importing vLLM's SamplingParams class.
-        self.generate_kwargs = {
-            "temperature": temperature,
-            "top_p": top_p,
-            "seed": 0,
-            "max_tokens": max_new_tokens,
-            "skip_special_tokens": not enable_thinking,
-        }
+        # All fields are fixed at construction; build SamplingParams once
+        # rather than per-row in generate_inner.
+        self.sampling_params = SamplingParams(
+            temperature=temperature,
+            top_p=top_p,
+            seed=0,
+            max_tokens=max_new_tokens,
+            repetition_penalty=repetition_penalty,
+            skip_special_tokens=not enable_thinking,
+        )
         self.model_path = model_path
         self.tokenizer_path = tokenizer_path
         self.max_model_len = max_model_len
-        # Read by vlmeval/smp/response_cache.py::_model_fingerprint as part of
-        # the cache key, alongside chat_template_hash above.
+        # Greedy decoding (temperature == 0) is deterministic and therefore
+        # cacheable; sampling (e.g. the thinking recipe) is not. response_cache.py
+        # reads response_cache_deterministic directly and uses generate_kwargs in
+        # the cache fingerprint, alongside chat_template_hash above.
+        self.generate_kwargs = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "max_new_tokens": max_new_tokens,
+            "repetition_penalty": repetition_penalty,
+            "enable_thinking": enable_thinking,
+        }
+        self.response_cache_deterministic = temperature <= 0.0
         self.vllm_prompt_contract = "prompt_token_ids"
         self.tokenizer_batch_size = 1
         self.tokenizer_add_special_tokens = False
+
+    def preproc_content(self, inputs):
+        from vlmeval.smp.file import parse_file
+
+        if self.check_content(inputs) != "listdict":
+            return super().preproc_content(inputs)
+
+        for item in inputs:
+            assert "type" in item and "value" in item
+            mime, path = parse_file(item["value"])
+            if mime is None:
+                assert item["type"] == "text"
+            elif mime == "unknown" and item["type"] == "image" and os.path.isfile(path):
+                item["value"] = path
+            else:
+                assert mime.split("/")[0] == item["type"]
+                item["value"] = path
+        return inputs
 
     def _build_messages(self, message):
         """Convert VLMEvalKit message format to the Apertus chat-template shape."""
@@ -150,8 +180,6 @@ class Apertus1p5(BaseModel):
         return _SPECIAL_TOKEN_RE.sub("", text).strip()
 
     def generate_inner(self, message, dataset=None):
-        from vllm import SamplingParams
-
         msgs, images = self._build_messages(message)
         prompt_data = {"prompt_token_ids": self._tokenize_messages(msgs)}
         if images:
@@ -159,7 +187,7 @@ class Apertus1p5(BaseModel):
 
         outputs = self.llm.generate(
             prompts=[prompt_data],
-            sampling_params=SamplingParams(**self.generate_kwargs),
+            sampling_params=self.sampling_params,
         )
         generated_text = outputs[0].outputs[0].text
 
