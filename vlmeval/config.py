@@ -2666,6 +2666,8 @@ if _apertus_run:
         ("APERTUS_REPETITION_PENALTY", "repetition_penalty", float),
         ("APERTUS_MAX_NEW_TOKENS", "max_new_tokens", int),
         ("APERTUS_MAX_MODEL_LEN", "max_model_len", int),
+        ("APERTUS_TENSOR_PARALLEL_SIZE", "tp_size", int),
+        ("APERTUS_GPU_MEMORY_UTILIZATION", "gpu_memory_utilization", float),
     ):
         _val = os.environ.get(_env)
         if _val:
