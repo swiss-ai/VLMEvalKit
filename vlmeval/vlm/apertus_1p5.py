@@ -22,6 +22,9 @@ DEFAULT_CHAT_TEMPLATE = os.path.join(DEFAULT_TOKENIZER_PATH, "chat_template.jinj
 
 _THINKING_SUFFIXES = ("</think>", "<|inner_suffix|>")
 _SPECIAL_TOKEN_RE = re.compile(r"<\|[^|]+\|>|</?think>")
+# Apertus closes point arrays with ')' instead of ']' (e.g. [672, 237) ) ~half
+# the time, which fails JSON parsing in the spatial scorers; repair it.
+_POINT_PAREN_RE = re.compile(r"(\[\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*)\)")
 
 
 def _env_bool(name, default):
@@ -194,4 +197,4 @@ class Apertus1p5(BaseModel):
         if self.enable_thinking:
             generated_text = self._strip_thinking(generated_text)
 
-        return generated_text.strip()
+        return _POINT_PAREN_RE.sub(r"\1]", generated_text.strip())
