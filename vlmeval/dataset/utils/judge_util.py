@@ -13,7 +13,7 @@ def build_judge(**kwargs):
     LOCAL_LLM = os.environ.get('LOCAL_LLM', None)
     if LOCAL_LLM is None:
         model_map = {
-            'gpt-4-turbo': 'gpt-4-1106-preview',
+            'gpt-4-turbo': 'gpt-4-turbo-2024-04-09',
             'gpt-4-0613': 'gpt-4-0613',
             'gpt-4-0125': 'gpt-4-0125-preview',
             'gpt-4-0409': 'gpt-4-turbo-2024-04-09',
