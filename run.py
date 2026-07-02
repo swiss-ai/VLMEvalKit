@@ -910,7 +910,10 @@ def run_local_mode(args):
                     files = [
                         path for path in pred_root.iterdir()
                         if path.is_file() and (
-                            f'{model_name}_{dataset_name}' in path.name or path.name == 'status.json'
+                            f'{model_name}_{dataset_name}' in path.name
+                            or path.name.startswith(f'{dataset_name}.')
+                            or path.name.startswith(f'{dataset_name}_')
+                            or path.name == 'status.json'
                         )
                     ]
                     # Exclude temporary intermediate files

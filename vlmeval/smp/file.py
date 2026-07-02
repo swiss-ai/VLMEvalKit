@@ -498,7 +498,8 @@ def find_prediction_files(run_dir, model_name, dataset_name):
     if not osp.isdir(run_dir):
         return []
     files = ls(run_dir, match=f'{model_name}_{dataset_name}.', mode='file')
-    files = _filter_shadow_dataset_files(files, model_name, dataset_name)
+    files += [x for x in ls(run_dir, match=f'{dataset_name}.', mode='file') if osp.basename(x).startswith(f'{dataset_name}.')]
+    files = _filter_shadow_dataset_files(sorted(set(files)), model_name, dataset_name)
     return sorted(files)
 
 
