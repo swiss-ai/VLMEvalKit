@@ -58,6 +58,8 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
             return failure_result
         if not isinstance(content, dict):
             return failure_result
+        if "extract_answer" not in content and "extracted_answer" in content:
+            content["extract_answer"] = content.pop("extracted_answer")
         if "score" not in content or "extract_answer" not in content:
             return failure_result
         return content
