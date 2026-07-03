@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import warnings
 from typing import Any, Dict, List, Tuple, Union
 
@@ -10,6 +11,21 @@ from vlmeval.dataset.image_base import ImageBaseDataset
 from vlmeval.dataset.utils import build_judge
 from vlmeval.smp import file, misc
 from vlmeval.smp.file import get_intermediate_file_path
+
+
+def _load_judge_json(response):
+    """Parse the judge reply, tolerating markdown fences and surrounding prose."""
+    text = str(response).strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match is None:
+            raise
+        return json.loads(match.group(0))
 
 
 def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
@@ -42,7 +58,7 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
                 seed=seed,
                 top_p=top_p,
             )
-            content = json.loads(response)
+            content = _load_judge_json(response)
             if not isinstance(content, dict):
                 return failure_result
             if "score" not in content or "extract_answer" not in content:
