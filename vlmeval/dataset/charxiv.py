@@ -63,13 +63,6 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
         return content
 
     return failure_result
-            if "score" not in content or "extract_answer" not in content:
-                return failure_result
-            return content
-        except Exception:
-            continue
-
-    return failure_result
 
 
 def qid2category(mode: str) -> Tuple[Dict[int, str], str]:
