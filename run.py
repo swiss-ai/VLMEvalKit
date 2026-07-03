@@ -910,9 +910,15 @@ def run_local_mode(args):
                     files = [
                         path for path in pred_root.iterdir()
                         if path.is_file() and (
-                            f'{model_name}_{dataset_name}' in path.name or path.name == 'status.json'
+                            f'{model_name}_{dataset_name}' in path.name
+                            or path.name.startswith(f'{dataset_name}.')
+                            or path.name.startswith(f'{dataset_name}_')
+                            or path.name == 'status.json'
                         )
                     ]
+                    kept = set(_filter_shadow_dataset_files(
+                        [str(path) for path in files], model_name, dataset_name))
+                    files = [path for path in files if str(path) in kept or path.name == 'status.json']
                     # Exclude temporary intermediate files
                     files = [
                         path for path in files

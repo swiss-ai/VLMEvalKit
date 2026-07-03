@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import warnings
 from typing import Any, Dict, List, Tuple, Union
 
@@ -19,37 +20,34 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
     Args:
         judge_model: The model used for evaluation
         line: A pandas Series containing the data to evaluate
-        **kwargs: Additional arguments for the judge model
+        **kwargs: retry count override
 
     Returns:
         Dict containing evaluation results with extract_answer and score
     """
     failure_result = {"extract_answer": "Failed to parse response", "score": 0.0}
-    prompt = line["grading_query"].replace("{PREDICTION}", line["prediction"])
+    prompt = line["grading_query"].replace("{PREDICTION}", str(line["prediction"]))
 
-    retry = kwargs.get("retry", 10)
-    max_tokens = kwargs.get("max_tokens", 256)
-    temperature = kwargs.get("temperature", 0)
-    seed = kwargs.get("seed", 42)
-    top_p = kwargs.get("top_p", 1)
-
-    for _ in range(retry):
+    for _ in range(kwargs.get("retry", 3)):
         try:
-            response = judge_model.generate(
-                prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                seed=seed,
-                top_p=top_p,
-            )
-            content = json.loads(response)
-            if not isinstance(content, dict):
-                return failure_result
-            if "score" not in content or "extract_answer" not in content:
-                return failure_result
-            return content
+            response = judge_model.generate(prompt)
         except Exception:
             continue
+        if isinstance(response, dict):
+            response = response.get("prediction", "")
+        if not isinstance(response, str) or response.startswith("Failed to obtain answer"):
+            continue
+        content = next(
+            (obj for obj in misc.extract_json_objects(response) if isinstance(obj, dict) and "score" in obj),
+            None,
+        )
+        if content is None:
+            continue
+        if "extract_answer" not in content and "extracted_answer" in content:
+            content["extract_answer"] = content.pop("extracted_answer")
+        content.pop("extracted_answer", None)
+        if "extract_answer" in content:
+            return content
 
     return failure_result
 
@@ -109,8 +107,8 @@ class CharXiv(ImageBaseDataset):
         "CharXiv_reasoning_val": "https://opencompass.openxlab.space/utils/VLMEval/CharXiv_reasoning_val.tsv",
     }
     DATASET_MD5 = {
-        "CharXiv_descriptive_val": "e165037032f169a59dd09ea5d7ad3073",
-        "CharXiv_reasoning_val": "98eeff269b40726982627b19338ccd45",
+        "CharXiv_descriptive_val": "8507c3740f8ddaedcb6b5c1cfcb3fa06",
+        "CharXiv_reasoning_val": "6fc1a522ad32c2e3d72a89857b8cf10b",
     }
 
     def build_prompt(self, line: Union[int, pd.Series]) -> List[Dict[str, str]]:
@@ -193,8 +191,9 @@ class CharXiv(ImageBaseDataset):
         # Set up judge model
         if "LOCAL_LLM" in os.environ:
             judge_model = os.path.basename(os.environ.get("LOCAL_LLM"))
+            judge_kwargs.pop("model", None)
         else:
-            judge_model = judge_kwargs.get("model", "gpt-4o-mini")
+            judge_model = judge_kwargs.pop("model", "gpt-4o-mini")
 
         if judge_model != "gpt-4o-mini":
             warnings.warn(
