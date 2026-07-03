@@ -44,23 +44,25 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
     prompt = line["grading_query"].replace("{PREDICTION}", line["prediction"])
 
     retry = kwargs.get("retry", 10)
-    max_tokens = kwargs.get("max_tokens", 256)
-    temperature = kwargs.get("temperature", 0)
-    seed = kwargs.get("seed", 42)
-    top_p = kwargs.get("top_p", 1)
 
     for _ in range(retry):
         try:
-            response = judge_model.generate(
-                prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                seed=seed,
-                top_p=top_p,
-            )
+            response = judge_model.generate(prompt)
+        except Exception:
+            continue
+        if isinstance(response, str) and response.startswith("Failed to obtain answer"):
+            continue
+        try:
             content = _load_judge_json(response)
-            if not isinstance(content, dict):
-                return failure_result
+        except Exception:
+            return failure_result
+        if not isinstance(content, dict):
+            return failure_result
+        if "score" not in content or "extract_answer" not in content:
+            return failure_result
+        return content
+
+    return failure_result
             if "score" not in content or "extract_answer" not in content:
                 return failure_result
             return content
