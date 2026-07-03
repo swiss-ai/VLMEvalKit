@@ -13,21 +13,6 @@ from vlmeval.smp import file, misc
 from vlmeval.smp.file import get_intermediate_file_path
 
 
-def _load_judge_json(response):
-    """Parse the judge reply, tolerating markdown fences and surrounding prose."""
-    text = str(response).strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match is None:
-            raise
-        return json.loads(match.group(0))
-
-
 def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
     """
     Evaluate a line using the judge model.
@@ -35,34 +20,34 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
     Args:
         judge_model: The model used for evaluation
         line: A pandas Series containing the data to evaluate
-        **kwargs: Additional arguments for the judge model
+        **kwargs: retry count override
 
     Returns:
         Dict containing evaluation results with extract_answer and score
     """
     failure_result = {"extract_answer": "Failed to parse response", "score": 0.0}
-    prompt = line["grading_query"].replace("{PREDICTION}", line["prediction"])
+    prompt = line["grading_query"].replace("{PREDICTION}", str(line["prediction"]))
 
-    retry = kwargs.get("retry", 10)
-
-    for _ in range(retry):
+    for _ in range(kwargs.get("retry", 3)):
         try:
             response = judge_model.generate(prompt)
         except Exception:
             continue
-        if isinstance(response, str) and response.startswith("Failed to obtain answer"):
+        if isinstance(response, dict):
+            response = response.get("prediction", "")
+        if not isinstance(response, str) or response.startswith("Failed to obtain answer"):
             continue
-        try:
-            content = _load_judge_json(response)
-        except Exception:
-            return failure_result
-        if not isinstance(content, dict):
-            return failure_result
+        content = next(
+            (obj for obj in misc.extract_json_objects(response) if isinstance(obj, dict) and "score" in obj),
+            None,
+        )
+        if content is None:
+            continue
         if "extract_answer" not in content and "extracted_answer" in content:
             content["extract_answer"] = content.pop("extracted_answer")
-        if "score" not in content or "extract_answer" not in content:
-            return failure_result
-        return content
+        content.pop("extracted_answer", None)
+        if "extract_answer" in content:
+            return content
 
     return failure_result
 
@@ -206,8 +191,9 @@ class CharXiv(ImageBaseDataset):
         # Set up judge model
         if "LOCAL_LLM" in os.environ:
             judge_model = os.path.basename(os.environ.get("LOCAL_LLM"))
+            judge_kwargs.pop("model", None)
         else:
-            judge_model = judge_kwargs.get("model", "gpt-4o-mini")
+            judge_model = judge_kwargs.pop("model", "gpt-4o-mini")
 
         if judge_model != "gpt-4o-mini":
             warnings.warn(
