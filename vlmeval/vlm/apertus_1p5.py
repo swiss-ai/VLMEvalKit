@@ -46,7 +46,7 @@ class Apertus1p5(BaseModel):
         model_path=DEFAULT_MODEL_PATH,
         tokenizer_path=DEFAULT_TOKENIZER_PATH,
         chat_template=DEFAULT_CHAT_TEMPLATE,
-        max_new_tokens=4096,
+        max_new_tokens=16384,
         temperature=0.0,
         top_p=1.0,
         repetition_penalty=1.0,
