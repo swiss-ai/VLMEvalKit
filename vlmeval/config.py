@@ -2271,12 +2271,14 @@ gemma_series = {
     "paligemma2-28b-mix-224": partial(vlm.PaliGemma, model_path="google/paligemma2-28b-mix-224"),
     "paligemma2-28b-mix-448": partial(vlm.PaliGemma, model_path="google/paligemma2-28b-mix-448"),
 
-    'Gemma3-4B': partial(vlm.Gemma3, model_path='google/gemma-3-4b-it'),
-    'Gemma3-12B': partial(vlm.Gemma3, model_path='google/gemma-3-12b-it'),
-    'Gemma3-27B': partial(vlm.Gemma3, model_path='google/gemma-3-27b-it'),
+    # attn: our eval containers ship no flash-attn; sdpa matches upstream numerics.
+    'Gemma3-4B': partial(vlm.Gemma3, model_path='google/gemma-3-4b-it', attn_implementation='sdpa'),
+    'Gemma3-12B': partial(vlm.Gemma3, model_path='google/gemma-3-12b-it', attn_implementation='sdpa'),
+    'Gemma3-27B': partial(vlm.Gemma3, model_path='google/gemma-3-27b-it', attn_implementation='sdpa'),
 
     'Gemma4-E2B-it': partial(vlm.Gemma4, model_path='google/gemma-4-E2B-it'),
     'Gemma4-E4B-it': partial(vlm.Gemma4, model_path='google/gemma-4-E4B-it'),
+    'Gemma4-12B-it': partial(vlm.Gemma4, model_path='google/gemma-4-12B-it'),
     'Gemma4-31B-it': partial(vlm.Gemma4, model_path='google/gemma-4-31B-it'),
     'Gemma4-26B-A4B-it': partial(vlm.Gemma4, model_path='google/gemma-4-26B-A4B-it')
 }
@@ -2681,3 +2683,19 @@ model_groups.append(apertus_series)
 
 for grp in model_groups:
     supported_VLM.update(grp)
+
+# Point registry entries at local checkpoints without editing this file:
+# VLMEVAL_MODEL_PATH_OVERRIDES="Gemma4-12B-it=/store/.../gemma-4-12B-it;Name=path".
+# Entries must already exist and take model_path; bad specs fail loud.
+_path_overrides = os.environ.get("VLMEVAL_MODEL_PATH_OVERRIDES", "")
+for _pair in filter(None, (p.strip() for p in _path_overrides.split(";"))):
+    _name, _sep, _path = _pair.partition("=")
+    _name, _path = _name.strip(), _path.strip()
+    if not _sep or not _path:
+        raise ValueError(f"VLMEVAL_MODEL_PATH_OVERRIDES: malformed entry {_pair!r}")
+    if _name not in supported_VLM:
+        raise ValueError(f"VLMEVAL_MODEL_PATH_OVERRIDES: unknown model {_name!r}")
+    _fn = supported_VLM[_name]
+    if not (isinstance(_fn, partial) and "model_path" in _fn.keywords):
+        raise ValueError(f"VLMEVAL_MODEL_PATH_OVERRIDES: {_name!r} takes no model_path")
+    supported_VLM[_name] = partial(_fn.func, *_fn.args, **{**_fn.keywords, "model_path": _path})
