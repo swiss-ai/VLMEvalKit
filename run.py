@@ -60,6 +60,7 @@ from vlmeval.smp import (MMBenchOfficialServer, build_eval_id, collect_run_bench
                          get_pred_file_path, githash, is_prediction_complete, listinstr, load,
                          load_env, prepare_reuse_files, proxy_set, setup_logger, timestr,
                          upsert_dataset_status, upsert_run_status)
+from vlmeval.smp.file import _filter_shadow_dataset_files
 from vlmeval.utils.result_transfer import MMMU_result_transfer, MMTBench_result_transfer
 
 logger = get_logger(__name__)
