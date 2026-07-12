@@ -198,6 +198,9 @@ class Gemma3(BaseModel):
             generation = generation[0][input_len:]
 
         decoded = self.processor.decode(generation, skip_special_tokens=True)
+        # transformers 5.x gemma4 processors decode into a chat message dict.
+        if isinstance(decoded, dict):
+            decoded = decoded.get('content', '')
         return decoded
 
     def generate_inner_vllm(self, message, dataset=None):
