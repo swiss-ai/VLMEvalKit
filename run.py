@@ -326,10 +326,9 @@ def get_judge_kwargs(dataset_name, dataset_type, args):
 
     if args.use_verifier:
         judge_kwargs['use_verifier'] = True
-    if args.use_vllm and not str(judge_kwargs.get('model', '')).startswith('gpt'):
-        # --use-vllm targets the evaluated model; passing it to an OpenAI judge
-        # makes every judge call fail with an unknown-argument error.
-        judge_kwargs['use_vllm'] = True
+    # --use-vllm targets the evaluated model only. Upstream also forwarded it to
+    # the judge, where it reaches the OpenAI request body and fails every call
+    # (the model key is not always set here, so no reliable gpt-guard exists).
 
     return judge_kwargs
 
