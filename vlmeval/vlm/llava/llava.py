@@ -234,6 +234,7 @@ class LLaVA_Next(BaseModel):
                                   LlavaNextForConditionalGeneration, LlavaNextProcessor)
 
         self.model_path = model_path
+        self.torch_dtype = getattr(torch, kwargs.pop("torch_dtype", "float16"))
         if "34b" in model_path.lower():
             self.processor = LlavaNextProcessor.from_pretrained(
                 self.model_path, use_fast=False
@@ -254,25 +255,25 @@ class LLaVA_Next(BaseModel):
             if "interleave" in model_path.lower():
                 model = LlavaForConditionalGeneration.from_pretrained(
                     self.model_path,
-                    torch_dtype=torch.float16,
+                    torch_dtype=self.torch_dtype,
                     low_cpu_mem_usage=True,
                     use_flash_attention_2=True,
                 )
             else:
                 model = LlavaNextForConditionalGeneration.from_pretrained(
                     self.model_path,
-                    torch_dtype=torch.float16,
+                    torch_dtype=self.torch_dtype,
                     low_cpu_mem_usage=True,
                     use_flash_attention_2=True,
                 )
         else:
             if "interleave" in model_path.lower():
                 model = LlavaForConditionalGeneration.from_pretrained(
-                    self.model_path, torch_dtype=torch.float16, low_cpu_mem_usage=True
+                    self.model_path, torch_dtype=self.torch_dtype, low_cpu_mem_usage=True
                 )
             else:
                 model = LlavaNextForConditionalGeneration.from_pretrained(
-                    self.model_path, torch_dtype=torch.float16, low_cpu_mem_usage=True
+                    self.model_path, torch_dtype=self.torch_dtype, low_cpu_mem_usage=True
                 )
 
         model = model.eval()
@@ -388,7 +389,7 @@ class LLaVA_Next(BaseModel):
             conversation, add_generation_prompt=True
         )
         inputs = self.processor(text=prompt, images=images, return_tensors="pt").to(
-            "cuda", torch.float16
+            "cuda", self.torch_dtype
         )
         output = self.model.generate(**inputs, **self.kwargs)
         answer = self.processor.decode(output[0], skip_special_token=True)
