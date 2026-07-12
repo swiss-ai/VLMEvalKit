@@ -80,6 +80,10 @@ ungrouped = {
         vlm.RBDash, model_path="RBDash-Team/RBDash-v1.5", root=RBDash_ROOT
     ),
     "Pixtral-12B": partial(vlm.Pixtral, model_path="mistralai/Pixtral-12B-2409"),
+    "pixtral-12b": partial(
+        vlm.LLaVA_Next, model_path="mistral-community/pixtral-12b",
+        torch_dtype="bfloat16",
+    ),
     "Ministral-3-14B-Instruct-2512_api": partial(
         api.LMDeployAPI,
         api_base="http://0.0.0.0:8000/v1/chat/completions",

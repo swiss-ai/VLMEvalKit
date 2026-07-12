@@ -230,7 +230,8 @@ class LLaVA_Next(BaseModel):
     INTERLEAVE = True
 
     def __init__(self, model_path="llava-hf/llava-v1.6-vicuna-7b-hf", **kwargs):
-        from transformers import (AutoProcessor, LlavaForConditionalGeneration,
+        from transformers import (AutoModelForImageTextToText, AutoProcessor,
+                                  LlavaForConditionalGeneration,
                                   LlavaNextForConditionalGeneration, LlavaNextProcessor)
 
         self.model_path = model_path
@@ -239,10 +240,9 @@ class LLaVA_Next(BaseModel):
             self.processor = LlavaNextProcessor.from_pretrained(
                 self.model_path, use_fast=False
             )
-        elif "interleave" in model_path.lower():
-            self.processor = AutoProcessor.from_pretrained(self.model_path)
         else:
-            self.processor = LlavaNextProcessor.from_pretrained(self.model_path)
+            # AutoProcessor dispatches per config (LlavaNext, Pixtral, ...).
+            self.processor = AutoProcessor.from_pretrained(self.model_path)
         flash_attn_flag = False
         try:
             import flash_attn  # noqa: F401
@@ -260,7 +260,7 @@ class LLaVA_Next(BaseModel):
                     use_flash_attention_2=True,
                 )
             else:
-                model = LlavaNextForConditionalGeneration.from_pretrained(
+                model = AutoModelForImageTextToText.from_pretrained(
                     self.model_path,
                     torch_dtype=self.torch_dtype,
                     low_cpu_mem_usage=True,
@@ -272,7 +272,7 @@ class LLaVA_Next(BaseModel):
                     self.model_path, torch_dtype=self.torch_dtype, low_cpu_mem_usage=True
                 )
             else:
-                model = LlavaNextForConditionalGeneration.from_pretrained(
+                model = AutoModelForImageTextToText.from_pretrained(
                     self.model_path, torch_dtype=self.torch_dtype, low_cpu_mem_usage=True
                 )
 
