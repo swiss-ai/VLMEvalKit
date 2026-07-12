@@ -249,15 +249,16 @@ class Gemma4(BaseModel):
             from transformers import AutoProcessor
 
             if not self.use_vllm:
+                # Dispatch through the Auto class: the concrete
+                # Gemma4ForConditionalGeneration silently builds the encoder
+                # topology for gemma4_unified checkpoints (12B), which loads
+                # but breaks at the patch projection.
                 try:
-                    from transformers import Gemma4ForConditionalGeneration
+                    from transformers import \
+                        AutoModelForMultimodalLM as Gemma4ForConditionalGeneration
                 except ImportError:
-                    try:
-                        from transformers import \
-                            AutoModelForMultimodalLM as Gemma4ForConditionalGeneration
-                    except ImportError:
-                        from transformers import \
-                            AutoModelForImageTextToText as Gemma4ForConditionalGeneration
+                    from transformers import \
+                        AutoModelForImageTextToText as Gemma4ForConditionalGeneration
         except Exception as e:
             logging.critical('Please install torch and a recent transformers version.')
             raise e
