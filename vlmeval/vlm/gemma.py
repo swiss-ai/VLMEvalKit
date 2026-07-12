@@ -405,7 +405,8 @@ class Gemma4(BaseModel):
         if hasattr(self.processor, 'parse_response'):
             decoded = self.processor.parse_response(decoded)
             if isinstance(decoded, dict):
-                decoded = decoded.get('answer', decoded.get('response', str(decoded)))
+                decoded = (decoded.get('answer') or decoded.get('response')
+                           or decoded.get('content') or str(decoded))
             elif isinstance(decoded, tuple):
                 decoded = decoded[-1]
         return self.extract_response_for_eval(decoded)
