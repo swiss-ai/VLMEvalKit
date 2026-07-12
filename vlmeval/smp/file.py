@@ -147,6 +147,10 @@ class NumpyEncoder(json.JSONEncoder):
 
 # LOAD & DUMP
 def dump(data, f, **kwargs):
+    parent = osp.dirname(str(f))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
     def dump_pkl(data, pth, **kwargs):
         pickle.dump(data, open(pth, 'wb'))
 
