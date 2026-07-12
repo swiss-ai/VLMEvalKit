@@ -1032,6 +1032,9 @@ llava_series = {
     "llava_next_vicuna_7b": partial(
         vlm.LLaVA_Next, model_path="llava-hf/llava-v1.6-vicuna-7b-hf"
     ),
+    "EuroVLM-9B-Preview": partial(
+        vlm.LLaVA_Next, model_path="utter-project/EuroVLM-9B-Preview"
+    ),
     "llava_next_vicuna_13b": partial(
         vlm.LLaVA_Next, model_path="llava-hf/llava-v1.6-vicuna-13b-hf"
     ),
