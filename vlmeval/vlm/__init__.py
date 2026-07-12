@@ -50,7 +50,7 @@ from .minigpt4 import MiniGPT4
 from .minimonkey import MiniMonkey
 from .mixsense import LLama3Mixsense
 from .mmalaya import MMAlaya, MMAlaya2
-from .molmo import molmo
+from .molmo import Molmo2, molmo
 from .monkey import Monkey, MonkeyChat
 from .moondream import Moondream1, Moondream2, Moondream3
 from .mplug_owl2 import mPLUG_Owl2

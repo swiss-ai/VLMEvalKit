@@ -2174,6 +2174,8 @@ molmo_series = {
     "molmo-7B-D-0924": partial(vlm.molmo, model_path="allenai/Molmo-7B-D-0924"),
     "molmo-7B-O-0924": partial(vlm.molmo, model_path="allenai/Molmo-7B-O-0924"),
     "molmo-72B-0924": partial(vlm.molmo, model_path="allenai/Molmo-72B-0924"),
+    "Molmo2-8B": partial(vlm.Molmo2, model_path="allenai/Molmo2-8B"),
+    "Molmo2-4B": partial(vlm.Molmo2, model_path="allenai/Molmo2-4B"),
 }
 
 kosmos_series = {
