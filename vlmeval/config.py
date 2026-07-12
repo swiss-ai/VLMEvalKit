@@ -2273,10 +2273,9 @@ gemma_series = {
     "paligemma2-28b-mix-224": partial(vlm.PaliGemma, model_path="google/paligemma2-28b-mix-224"),
     "paligemma2-28b-mix-448": partial(vlm.PaliGemma, model_path="google/paligemma2-28b-mix-448"),
 
-    # attn: our eval containers ship no flash-attn; sdpa matches upstream numerics.
-    'Gemma3-4B': partial(vlm.Gemma3, model_path='google/gemma-3-4b-it', attn_implementation='sdpa'),
-    'Gemma3-12B': partial(vlm.Gemma3, model_path='google/gemma-3-12b-it', attn_implementation='sdpa'),
-    'Gemma3-27B': partial(vlm.Gemma3, model_path='google/gemma-3-27b-it', attn_implementation='sdpa'),
+    'Gemma3-4B': partial(vlm.Gemma3, model_path='google/gemma-3-4b-it'),
+    'Gemma3-12B': partial(vlm.Gemma3, model_path='google/gemma-3-12b-it'),
+    'Gemma3-27B': partial(vlm.Gemma3, model_path='google/gemma-3-27b-it'),
 
     'Gemma4-E2B-it': partial(vlm.Gemma4, model_path='google/gemma-4-E2B-it'),
     'Gemma4-E4B-it': partial(vlm.Gemma4, model_path='google/gemma-4-E4B-it'),

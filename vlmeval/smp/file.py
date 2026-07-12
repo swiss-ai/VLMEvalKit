@@ -147,6 +147,7 @@ class NumpyEncoder(json.JSONEncoder):
 
 # LOAD & DUMP
 def dump(data, f, **kwargs):
+    """Serialize data to f by suffix; creates parent directories."""
     parent = osp.dirname(str(f))
     if parent:
         os.makedirs(parent, exist_ok=True)

@@ -10,6 +10,7 @@ from tqdm import tqdm
 from vlmeval.config import supported_VLM
 from vlmeval.smp import (dump, get_logger, get_pred_file_format, get_pred_file_path,
                          get_rank_and_world_size, load)
+from vlmeval.smp.distributed_env import without_torchrun_env
 from vlmeval.smp.response_cache import ResponseCache
 from vlmeval.utils import track_progress_rich
 
@@ -139,11 +140,10 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
     # (25.06.05) In newer version of transformers (after 4.50), with device_map='auto' and torchrun launcher,
     # Transformers automatically adopt TP parallelism, which leads to compatibility problems with VLMEvalKit
     # (In VLMEvalKit, we use torchrun to launch multiple model instances on a single node).
-    # To bypass this problem, we unset `WORLD_SIZE` before building the model to not use TP parallel.
-    ws_bak = os.environ.pop('WORLD_SIZE', None)
-    model = supported_VLM[model_name](**kwargs) if isinstance(model, str) else model
-    if ws_bak:
-        os.environ['WORLD_SIZE'] = ws_bak
+    # Transformers 5.x additionally reads LOCAL_RANK/RANK for device placement, so we
+    # drop the whole torchrun env for the duration of the build (restored afterwards).
+    with without_torchrun_env():
+        model = supported_VLM[model_name](**kwargs) if isinstance(model, str) else model
 
     is_api = getattr(model, 'is_api', False)
     if is_api:

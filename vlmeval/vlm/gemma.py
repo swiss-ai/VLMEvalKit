@@ -7,8 +7,6 @@ from mimetypes import guess_type
 import torch
 from PIL import Image
 
-from vlmeval.smp.distributed_env import without_torchrun_env
-
 from .base import BaseModel
 
 
@@ -103,7 +101,7 @@ class Gemma3(BaseModel):
         else:
             self.model = Gemma3ForConditionalGeneration.from_pretrained(
                 model_path, device_map="cuda",
-                attn_implementation=kwargs.pop("attn_implementation", "flash_attention_2"),
+                attn_implementation=kwargs.pop("attn_implementation", "sdpa"),
                 torch_dtype=torch.bfloat16,
             ).eval()
             self.device = self.model.device
@@ -306,12 +304,9 @@ class Gemma4(BaseModel):
             if attn_implementation := kwargs.pop('attn_implementation', None):
                 model_kwargs['attn_implementation'] = attn_implementation
 
-            # Under torchrun DP each rank is masked to one GPU, but transformers 5.x
-            # reads LOCAL_RANK/WORLD_SIZE and tries to place rank N on cuda:N.
-            with without_torchrun_env():
-                self.model = Gemma4ForConditionalGeneration.from_pretrained(
-                    model_path, **model_kwargs
-                ).eval()
+            self.model = Gemma4ForConditionalGeneration.from_pretrained(
+                model_path, **model_kwargs
+            ).eval()
             self.device = getattr(self.model, 'device', None)
             if self.device is None:
                 self.device = next(self.model.parameters()).device
