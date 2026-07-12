@@ -326,7 +326,9 @@ def get_judge_kwargs(dataset_name, dataset_type, args):
 
     if args.use_verifier:
         judge_kwargs['use_verifier'] = True
-    if args.use_vllm:
+    if args.use_vllm and not str(judge_kwargs.get('model', '')).startswith('gpt'):
+        # --use-vllm targets the evaluated model; passing it to an OpenAI judge
+        # makes every judge call fail with an unknown-argument error.
         judge_kwargs['use_vllm'] = True
 
     return judge_kwargs
