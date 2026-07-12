@@ -216,9 +216,22 @@ class SiteBenchImage(SiteBenchBase, ImageMCQDataset):
                 s = x.strip()
                 s = os.path.expanduser(os.path.expandvars(s))
 
-                if not dataset_path:
-                    return os.path.normpath(s)
-                return os.path.normpath(os.path.join(dataset_path, s.lstrip(r'\/')))
+                if dataset_path:
+                    s = os.path.normpath(os.path.join(dataset_path, s.lstrip(r'\/')))
+                else:
+                    s = os.path.normpath(s)
+
+                # Some SEED-Bench cc3m images ship without an extension; alias them
+                # to .jpg so mimetype-based content checks recognize them as images.
+                if not os.path.splitext(s)[1] and os.path.isfile(s):
+                    alias = s + '.jpg'
+                    if not os.path.exists(alias):
+                        try:
+                            os.symlink(os.path.basename(s), alias)
+                        except FileExistsError:
+                            pass
+                    s = alias
+                return s
 
             def to_abs(p):
                 if isinstance(p, list):
