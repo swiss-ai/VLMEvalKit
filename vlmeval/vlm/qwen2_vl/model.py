@@ -14,7 +14,7 @@ from vlmeval.smp import get_cache_path, get_gpu_memory, listinstr
 from ..base import BaseModel
 from .prompt import Qwen2VLPromptMixin
 
-VLLM_MAX_IMAGE_INPUT_NUM = 24
+VLLM_MAX_IMAGE_INPUT_NUM = int(os.environ.get('VLLM_MAX_IMAGE_INPUT_NUM', 24))
 
 
 def ensure_image_url(image: str) -> str:
