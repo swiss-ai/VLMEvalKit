@@ -223,14 +223,16 @@ class SiteBenchImage(SiteBenchBase, ImageMCQDataset):
 
                 # Some SEED-Bench cc3m images ship without an extension; alias them
                 # to .jpg so mimetype-based content checks recognize them as images.
-                if not os.path.splitext(s)[1] and os.path.isfile(s):
+                if not os.path.splitext(s)[1]:
                     alias = s + '.jpg'
-                    if not os.path.exists(alias):
+                    if os.path.lexists(alias):
+                        return alias
+                    if os.path.isfile(s):
                         try:
                             os.symlink(os.path.basename(s), alias)
                         except FileExistsError:
                             pass
-                    s = alias
+                        return alias
                 return s
 
             def to_abs(p):
