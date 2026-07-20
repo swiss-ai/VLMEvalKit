@@ -578,7 +578,13 @@ def run_local_mode(args):
         logger.info(f'=========== {model_name} ===========')
         model = None
 
-        pred_root_meta = Path(args.work_dir) / model_name
+        # A model passed as a filesystem path is absolute, and Path(work_dir) /
+        # "/abs/path" discards work_dir entirely -- artifacts would be written
+        # into the checkpoint directory, which fails outright for a read-only
+        # shared checkpoint. Keep the component relative, as the API path at
+        # build_eval_id() below already does via replace('/', '--').
+        pred_dir_name = Path(model_name).name if os.path.isabs(model_name) else model_name
+        pred_root_meta = Path(args.work_dir) / pred_dir_name
         pred_root = pred_root_meta / eval_id
         pred_root_meta.mkdir(parents=True, exist_ok=True)
         pred_root.mkdir(parents=True, exist_ok=True)
