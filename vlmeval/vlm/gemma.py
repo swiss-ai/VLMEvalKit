@@ -403,7 +403,15 @@ class Gemma4(BaseModel):
 
         decoded = self.processor.decode(generation, skip_special_tokens=False)
         if hasattr(self.processor, 'parse_response'):
-            decoded = self.processor.parse_response(decoded)
+            # transformers 5's parse_response requires prefix= (the text before
+            # generation); decoded is already the post-input span, so an empty
+            # prefix is correct. Fall back to the raw decode if the call rejects.
+            try:
+                decoded = self.processor.parse_response(decoded, prefix='')
+            except TypeError:
+                decoded = self.processor.parse_response(decoded)
+            except Exception:
+                pass
             if isinstance(decoded, dict):
                 decoded = (decoded.get('answer') or decoded.get('response')
                            or decoded.get('content') or str(decoded))
