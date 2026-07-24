@@ -18,6 +18,7 @@ class MindCubeBench(ImageMCQDataset):
     """
 
     TYPE = 'MCQ'
+    force_use_dataset_prompt = True
 
     DATASET_URL = {
         'MindCubeBench_tiny_raw_qa': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/MindCubeBench_tiny_raw_qa.tsv',  # noqa: E501
