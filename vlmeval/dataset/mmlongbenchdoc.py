@@ -1,3 +1,4 @@
+import warnings
 import base64
 import io
 import logging
@@ -460,7 +461,12 @@ class MMLongBenchDoc(ImageBaseDataset):
         self.model_list = list(self.SUPPORTED_MODELS.keys())
         model_name = kwargs['model']
         if not listinstr(self.model_list, model_name):
-            raise AssertionError("{} doesn't support the evaluation on MMLongBench_DOC.".format(model_name))
+            # (max_concat, column_num) only tunes page packing; default to the
+            # adaptive layout rather than refusing unlisted models.
+            warnings.warn("{} has no MMLongBench_DOC packing entry; using adaptive (1, -1).".format(model_name))
+            self.SUPPORTED_MODELS = dict(self.SUPPORTED_MODELS)
+            self.SUPPORTED_MODELS[model_name] = (1, -1)
+            self.model_list.append(model_name)
         super(MMLongBenchDoc, self).__init__(dataset)
 
         self.is_api = True if listinstr(['GPT4'], model_name) else False
