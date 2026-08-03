@@ -9,7 +9,6 @@ import math
 import unicodedata
 from math import isclose
 from collections import Counter
-from rouge_score import rouge_scorer
 from functools import partial
 from tqdm import tqdm
 
@@ -504,7 +503,15 @@ def anls_compute(prediction, groundtruth, threshold=-1):
     return anls
 
 
-r_scorer = rouge_scorer.RougeScorer(['rougeL', 'rougeLsum'], use_stemmer=True)
+_R_SCORER = None
+
+
+def _get_r_scorer():
+    global _R_SCORER
+    if _R_SCORER is None:
+        from rouge_score import rouge_scorer
+        _R_SCORER = rouge_scorer.RougeScorer(['rougeL', 'rougeLsum'], use_stemmer=True)
+    return _R_SCORER
 def calculate_metrics(prediction, answers, metrics, extra_info=None):
     metric_list = [m.strip() for m in metrics.split(",")]
     metric_res = {}
@@ -540,8 +547,8 @@ def calculate_metrics(prediction, answers, metrics, extra_info=None):
         elif isinstance(answers[0], list):
             answers = [ground_truth for ground_truths_list in answers for ground_truth in ground_truths_list]
 
-        rouges = [r_scorer.score(target=a, prediction=prediction) for a in answers]
-        for k in r_scorer.rouge_types:
+        rouges = [_get_r_scorer().score(target=a, prediction=prediction) for a in answers]
+        for k in _get_r_scorer().rouge_types:
             metric_res[k + "_f1"] = max([r[k].fmeasure for r in rouges])
             metric_res[k + "_recall"] = max([r[k].recall for r in rouges])
 
