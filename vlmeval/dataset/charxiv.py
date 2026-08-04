@@ -25,7 +25,7 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
     Returns:
         Dict containing evaluation results with extract_answer and score
     """
-    failure_result = {"extract_answer": "Failed to parse response", "score": 0.0}
+    failure_result = {"extracted_answer": "Failed to parse response", "score": 0.0}
     prompt = line["grading_query"].replace("{PREDICTION}", str(line["prediction"]))
 
     for _ in range(kwargs.get("retry", 3)):
@@ -43,10 +43,10 @@ def auxeval(judge_model: Any, line: pd.Series, **kwargs: Any) -> Dict[str, Any]:
         )
         if content is None:
             continue
-        if "extract_answer" not in content and "extracted_answer" in content:
-            content["extract_answer"] = content.pop("extracted_answer")
-        content.pop("extracted_answer", None)
-        if "extract_answer" in content:
+        if "extracted_answer" not in content and "extract_answer" in content:
+            content["extracted_answer"] = content.pop("extract_answer")
+        content.pop("extract_answer", None)
+        if "extracted_answer" in content:
             return content
 
     return failure_result
@@ -107,7 +107,7 @@ class CharXiv(ImageBaseDataset):
         "CharXiv_reasoning_val": "https://opencompass.openxlab.space/utils/VLMEval/CharXiv_reasoning_val.tsv",
     }
     DATASET_MD5 = {
-        "CharXiv_descriptive_val": "8507c3740f8ddaedcb6b5c1cfcb3fa06",
+        "CharXiv_descriptive_val": "e165037032f169a59dd09ea5d7ad3073",
         "CharXiv_reasoning_val": "6fc1a522ad32c2e3d72a89857b8cf10b",
     }
 
@@ -217,8 +217,8 @@ class CharXiv(ImageBaseDataset):
         data = file.load(eval_file)
         if "score" not in data.columns:
             data["score"] = 0
-        if "extract_answer" not in data.columns:
-            data["extract_answer"] = ""
+        if "extracted_answer" not in data.columns:
+            data["extracted_answer"] = ""
 
         # Load intermediate results if available
         processed_results = {}
@@ -245,8 +245,8 @@ class CharXiv(ImageBaseDataset):
 
         # Update data with evaluation results
         data["score"] = data.apply(lambda x: processed_results[x.name]["score"], axis=1)
-        data["extract_answer"] = data.apply(
-            lambda x: processed_results[x.name]["extract_answer"], axis=1
+        data["extracted_answer"] = data.apply(
+            lambda x: processed_results[x.name]["extracted_answer"], axis=1
         )
 
         # Save results and return scores
