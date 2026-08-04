@@ -598,3 +598,4 @@ class MMLongBenchDoc(ImageBaseDataset):
         logger.info(f'MMLongBench_eval successfully finished evaluating {eval_file}, results saved in {score_pth}')
         logger.info('Score: ')
         logger.info(score)
+        return score
