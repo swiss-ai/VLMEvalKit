@@ -2690,6 +2690,15 @@ if _apertus_run:
 model_groups.append(nanovlm_series)
 model_groups.append(apertus_series)
 
+# APERTUS_RUN_NAME names a new Apertus run; shadowing a registered model would
+# silently evaluate the wrong weights under that model's name (launch foreign
+# models with FOREIGN_MODEL=1 so the launcher never exports APERTUS_RUN_NAME).
+if _apertus_run and any(_apertus_run in grp for grp in model_groups[:-1]):
+    raise ValueError(
+        f"APERTUS_RUN_NAME={_apertus_run!r} collides with a registered model; "
+        "pick a distinct run name or set FOREIGN_MODEL=1 for foreign models."
+    )
+
 for grp in model_groups:
     supported_VLM.update(grp)
 
