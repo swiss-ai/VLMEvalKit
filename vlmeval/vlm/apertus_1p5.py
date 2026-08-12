@@ -168,7 +168,11 @@ class Apertus1p5(BaseModel):
             enable_thinking=self.enable_thinking,
         )
         if images:
-            prompt = self._splice_image_frames(prompt, images)
+            # Discrete unified: images become framed visual-token text via the
+            # Emu3.5 VQ tokenizer, so the engine only ever sees token ids.
+            from apertus_image_tokenizer import splice_frames
+
+            prompt = splice_frames(prompt, images, self.tokenizer)
         tokenized = self.tokenizer(
             prompt,
             add_special_tokens=False,
@@ -176,12 +180,6 @@ class Apertus1p5(BaseModel):
         )
         return tokenized["input_ids"]
 
-    def _splice_image_frames(self, prompt, images):
-        # Discrete unified: images become framed visual-token text via the
-        # Emu3.5 VQ tokenizer, so the engine only ever sees token ids.
-        from apertus_image_tokenizer import splice_frames
-
-        return splice_frames(prompt, images, self.tokenizer)
 
     @staticmethod
     def _strip_thinking(text):
