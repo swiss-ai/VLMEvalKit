@@ -321,6 +321,7 @@ def _is_cacheable_response(response):
 def _model_fingerprint(model, model_name):
     attrs = [
         "model_path",
+        "image_pipeline",
         "tokenizer_path",
         "chat_template_hash",
         "vllm_prompt_contract",

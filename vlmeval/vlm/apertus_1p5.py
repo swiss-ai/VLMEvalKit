@@ -125,6 +125,10 @@ class Apertus1p5(BaseModel):
         }
         self.response_cache_deterministic = temperature <= 0.0
         self.vllm_prompt_contract = "prompt_token_ids"
+        # Cache-fingerprint identity of the image->token conversion; bump when
+        # the conversion mechanism or framing changes, so stale predictions
+        # from a different pipeline can never replay as fresh.
+        self.image_pipeline = "harness-splice-v1"
         self.tokenizer_batch_size = 1
         self.tokenizer_add_special_tokens = False
 
@@ -178,6 +182,11 @@ class Apertus1p5(BaseModel):
             add_special_tokens=False,
             return_attention_mask=False,
         )
+        if self.max_model_len and len(tokenized["input_ids"]) >= self.max_model_len:
+            raise ValueError(
+                f"prompt of {len(tokenized['input_ids'])} tokens exceeds max_model_len={self.max_model_len}; "
+                "too many or too large images for one request"
+            )
         return tokenized["input_ids"]
 
 

@@ -220,7 +220,7 @@ class TestApertus1p5Tokenization(unittest.TestCase):
         def fake_build_messages(message):
             return [{"role": "user", "content": [{"type": "text", "text": "hello"}]}], []
 
-        def fake_tokenize_messages(messages):
+        def fake_tokenize_messages(messages, images=None):
             return [11, 22, 33]
 
         class FakeLLM:
