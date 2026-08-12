@@ -159,7 +159,7 @@ class Apertus1p5(BaseModel):
                 content_parts.append({"type": "image"})
         return [{"role": "user", "content": {"parts": content_parts}}], images
 
-    def _tokenize_messages(self, msgs):
+    def _tokenize_messages(self, msgs, images=None):
         prompt = self.tokenizer.apply_chat_template(
             msgs,
             add_generation_prompt=True,
@@ -167,12 +167,45 @@ class Apertus1p5(BaseModel):
             chat_template=self.chat_template_str,
             enable_thinking=self.enable_thinking,
         )
+        if images:
+            prompt = self._splice_image_frames(prompt, images)
         tokenized = self.tokenizer(
             prompt,
             add_special_tokens=False,
             return_attention_mask=False,
         )
         return tokenized["input_ids"]
+
+    def _mm_kwargs(self):
+        kwargs = {}
+        hub = os.environ.get("APERTUS_VQ_HUB")
+        if not hub:
+            cache = os.environ.get("VLLM_APERTUS_MODELS_CACHE") or os.environ.get("LMMS_EVAL_MODELS_CACHE")
+            if cache and os.path.isdir(os.path.join(cache, "BAAI/Emu3.5-VisionTokenizer")):
+                hub = os.path.join(cache, "BAAI/Emu3.5-VisionTokenizer")
+        if hub:
+            kwargs["apertus_vq_hub"] = hub
+        return kwargs
+
+    def _splice_image_frames(self, prompt, images):
+        # Discrete unified: images become framed visual-token text via the
+        # Emu3.5 VQ tokenizer, so the engine only ever sees token ids.
+        if getattr(self, "_image_tokenizer", None) is None:
+            from apertus_image_tokenizer import ApertusImageTokenizer
+
+            self._image_tokenizer = ApertusImageTokenizer()
+        mm_kwargs = self._mm_kwargs()
+        frames = self._image_tokenizer.encode_images(images, tokenizer=self.tokenizer, mm_processor_kwargs=mm_kwargs)
+        aliases = self._image_tokenizer.placeholder_aliases(self.tokenizer, mm_kwargs)
+        placeholder = next((a for a in aliases if a in prompt), None)
+        if placeholder is None or prompt.count(placeholder) != len(frames):
+            raise ValueError(
+                f"image placeholder mismatch: aliases={aliases} "
+                f"count={None if placeholder is None else prompt.count(placeholder)} images={len(frames)}"
+            )
+        for frame in frames:
+            prompt = prompt.replace(placeholder, frame, 1)
+        return prompt
 
     @staticmethod
     def _strip_thinking(text):
@@ -184,9 +217,7 @@ class Apertus1p5(BaseModel):
 
     def generate_inner(self, message, dataset=None):
         msgs, images = self._build_messages(message)
-        prompt_data = {"prompt_token_ids": self._tokenize_messages(msgs)}
-        if images:
-            prompt_data["multi_modal_data"] = {"image": images}
+        prompt_data = {"prompt_token_ids": self._tokenize_messages(msgs, images)}
 
         outputs = self.llm.generate(
             prompts=[prompt_data],
