@@ -243,6 +243,9 @@ class Gemma4(BaseModel):
 
     def __init__(self, model_path='google/gemma-4-E2B-it', **kwargs):
         self.use_vllm = kwargs.pop('use_vllm', False)
+        # Cache-fingerprint identity: transformers-path and vLLM-path predictions
+        # must never replay for each other.
+        self.serving_path = 'vllm' if self.use_vllm else 'hf'
         self.limit_mm_per_prompt = kwargs.pop('limit_mm_per_prompt', 24)
         self.model_path = model_path
 

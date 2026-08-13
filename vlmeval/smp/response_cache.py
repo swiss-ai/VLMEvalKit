@@ -322,6 +322,7 @@ def _model_fingerprint(model, model_name):
     attrs = [
         "model_path",
         "image_pipeline",
+        "serving_path",
         "tokenizer_path",
         "chat_template_hash",
         "vllm_prompt_contract",
