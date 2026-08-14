@@ -20,11 +20,38 @@ DEFAULT_MODEL_PATH = "/capstor/store/cscs/swissai/infra01/hf-checkpoints/Apertus
 DEFAULT_TOKENIZER_PATH = "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed"
 DEFAULT_CHAT_TEMPLATE = os.path.join(DEFAULT_TOKENIZER_PATH, "chat_template.jinja")
 
-_THINKING_SUFFIXES = ("</think>", "<|inner_suffix|>")
+_THINKING_MARKERS = (("<think>", "</think>"), ("<|inner_prefix|>", "<|inner_suffix|>"))
 _SPECIAL_TOKEN_RE = re.compile(r"<\|[^|]+\|>|</?think>")
 # Apertus closes point arrays with ')' instead of ']' (e.g. [672, 237) ) ~half
-# the time, which fails JSON parsing in the spatial scorers; repair it.
+# the time, which fails JSON parsing in the spatial scorers; repair it — but
+# only for spatial benchmarks, since elsewhere "[0, 1)" can be a mathematically
+# valid half-open interval.
 _POINT_PAREN_RE = re.compile(r"(\[\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*)\)")
+_POINT_REPAIR_DATASETS = (
+    "3dsrbench",
+    "blink",
+    "cvbench",
+    "embspatial",
+    "erqa",
+    "mindcube",
+    "mmsibench",
+    "omnispatial",
+    "osworld",
+    "refspatial",
+    "screenspot",
+    "sitebench",
+    "sparbench",
+    "spatialdise",
+    "viewspatial",
+    "vsibench",
+    "where2place",
+)
+
+
+def _needs_point_repair(dataset):
+    if not dataset:
+        return False
+    return re.sub(r"[^a-z0-9]", "", str(dataset).lower()).startswith(_POINT_REPAIR_DATASETS)
 
 
 class Apertus1p5(BaseModel):
@@ -179,11 +206,18 @@ class Apertus1p5(BaseModel):
 
     @staticmethod
     def _strip_thinking(text):
-        for suffix in _THINKING_SUFFIXES:
+        for prefix, suffix in _THINKING_MARKERS:
             if suffix in text:
-                text = text.rsplit(suffix, 1)[1]
+                # Answer is the span after the close of the deliberation
+                # block, up to any reopened (unclosed) block.
+                answer = text.rsplit(suffix, 1)[1].split(prefix, 1)[0]
                 break
-        return _SPECIAL_TOKEN_RE.sub("", text).strip()
+            if prefix in text:
+                # Opened but never closed: no committed answer to extract.
+                return ""
+        else:
+            answer = text
+        return _SPECIAL_TOKEN_RE.sub("", answer).strip()
 
     def generate_inner(self, message, dataset=None):
         msgs, images = self._build_messages(message)
@@ -198,4 +232,7 @@ class Apertus1p5(BaseModel):
         if self.enable_thinking:
             generated_text = self._strip_thinking(generated_text)
 
-        return _POINT_PAREN_RE.sub(r"\1]", generated_text.strip())
+        generated_text = generated_text.strip()
+        if _needs_point_repair(dataset):
+            generated_text = _POINT_PAREN_RE.sub(r"\1]", generated_text)
+        return generated_text
