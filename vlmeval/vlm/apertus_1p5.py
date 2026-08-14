@@ -27,13 +27,6 @@ _SPECIAL_TOKEN_RE = re.compile(r"<\|[^|]+\|>|</?think>")
 _POINT_PAREN_RE = re.compile(r"(\[\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*)\)")
 
 
-def _env_bool(name, default):
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
-
-
 class Apertus1p5(BaseModel):
     """Apertus 1.5 8B evaluated via vLLM with correct tokenization."""
 
@@ -54,7 +47,6 @@ class Apertus1p5(BaseModel):
         gpu_memory_utilization=0.6,
         max_model_len=131072,
         enable_thinking=False,
-        skip_mm_profiling=None,
         **kwargs,
     ):
         super().__init__()
@@ -65,9 +57,6 @@ class Apertus1p5(BaseModel):
         from vllm import LLM, SamplingParams
 
         self.enable_thinking = enable_thinking
-        if skip_mm_profiling is None:
-            skip_mm_profiling = _env_bool("VLLM_APERTUS_SKIP_MM_PROFILING", True)
-        self.skip_mm_profiling = skip_mm_profiling
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_path, trust_remote_code=False
         )
@@ -95,8 +84,6 @@ class Apertus1p5(BaseModel):
                 trust_remote_code=False,
                 max_model_len=max_model_len,
                 hf_overrides={"max_position_embeddings": max_model_len},
-                limit_mm_per_prompt={"image": 32},
-                skip_mm_profiling=self.skip_mm_profiling,
             )
 
         # All fields are fixed at construction; build SamplingParams once

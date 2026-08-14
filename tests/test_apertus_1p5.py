@@ -142,34 +142,6 @@ class TestApertus1p5Tokenization(unittest.TestCase):
         self.assertEqual(seen_env["CUDA_VISIBLE_DEVICES"], "2")
         self.assertEqual(seen_env["VLLM_HOST_IP"], "127.0.0.1")
         self.assertEqual(seen_kwargs["gpu_memory_utilization"], 0.6)
-        self.assertTrue(seen_kwargs["skip_mm_profiling"])
-
-    def test_llm_construction_honors_skip_mm_profiling_env_override(self):
-        module = load_apertus_module()
-        seen_kwargs = {}
-
-        class FakeAutoTokenizer:
-
-            @staticmethod
-            def from_pretrained(tokenizer_path, trust_remote_code):
-                return FakeTokenizer()
-
-        class FakeLLM:
-
-            def __init__(self, **kwargs):
-                seen_kwargs.update(kwargs)
-
-        fake_transformers = types.ModuleType("transformers")
-        fake_transformers.AutoTokenizer = FakeAutoTokenizer
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.LLM = FakeLLM
-        fake_vllm.SamplingParams = lambda **kwargs: kwargs
-
-        with mock.patch.dict(sys.modules, {"transformers": fake_transformers, "vllm": fake_vllm}):
-            with mock.patch.dict(os.environ, {"VLLM_APERTUS_SKIP_MM_PROFILING": "false"}, clear=False):
-                module.Apertus1p5(model_path="model", tokenizer_path="tokenizer", chat_template=None)
-
-        self.assertFalse(seen_kwargs["skip_mm_profiling"])
 
     def test_tokenize_messages_uses_single_prompt_and_no_added_special_tokens(self):
         module = load_apertus_module()

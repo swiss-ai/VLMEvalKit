@@ -30,7 +30,6 @@ MODE="all"
 NODES="${NODES:-1}"
 NUM_PROCESSES="${NUM_PROCESSES:-4}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
-SKIP_MM_PROFILING="${VLLM_APERTUS_SKIP_MM_PROFILING:-}"
 ENABLE_IMAGE_TOKEN_CACHE="${ENABLE_IMAGE_TOKEN_CACHE:-true}"
 IMAGE_TOKEN_CACHE_MODE="${IMAGE_TOKEN_CACHE_MODE:-fill}"
 IMAGE_TOKEN_CACHE_LOCAL_COPY="${VLLM_APERTUS_IMAGE_TOKEN_CACHE_LOCAL_COPY:-0}"
@@ -59,8 +58,6 @@ Options:
                                     Total world size = nodes * num-processes.
   --num-processes <int>             DP workers per node (= GPUs per node). Default: 4.
   --batch-size <int>                Logged for parity with lmms-eval; tokenizer batch is fixed to 1 in code.
-  --skip-mm-profiling
-                                    Keep Apertus vLLM skip_mm_profiling enabled.
   --work-base <path>                Root for VLMEvalKit outputs.
   --response-cache <path>           SQLite response cache root.
   --image-token-cache-base <path>   Apertus image-token cache base. Default: response-cache/image_token_cache.
@@ -110,10 +107,6 @@ while [[ $# -gt 0 ]]; do
       NUM_PROCESSES="$2"; shift 2 ;;
     --batch-size)
       BATCH_SIZE="$2"; shift 2 ;;
-    --skip-mm-profiling)
-      SKIP_MM_PROFILING=true; shift ;;
-    --no-skip-mm-profiling)
-      SKIP_MM_PROFILING=false; shift ;;
     --work-base)
       WORK_BASE="$2"; shift 2 ;;
     --response-cache)
@@ -197,10 +190,6 @@ export LD_LIBRARY_PATH="/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD
 
 mkdir -p "${LOG_DIR}" "${RESPONSE_CACHE}" "${LMU_DATA}" "${WORK_BASE}" "${RUNTIME_CACHE}"
 
-if [[ -n "${SKIP_MM_PROFILING}" ]]; then
-  export VLLM_APERTUS_SKIP_MM_PROFILING="${SKIP_MM_PROFILING}"
-fi
-
 echo "========================================"
 echo "Apertus VLMEvalKit submit"
 echo "  repo:           ${REPO_DIR}"
@@ -211,7 +200,6 @@ echo "  mode:           ${MODE}"
 echo "  nodes:          ${NODES}"
 echo "  dp workers:     ${NUM_PROCESSES} per node (world_size = ${NODES} * ${NUM_PROCESSES})"
 echo "  batch size:     ${BATCH_SIZE}"
-echo "  skip mm prof:   ${VLLM_APERTUS_SKIP_MM_PROFILING:-<default true>}"
 echo "  response cache: ${RESPONSE_CACHE}"
 echo "  image cache:    ${ENABLE_IMAGE_TOKEN_CACHE} ${IMAGE_TOKEN_CACHE_MODE} (${IMAGE_TOKEN_CACHE_BASE})"
 echo "  LMUData:        ${LMU_DATA}"
