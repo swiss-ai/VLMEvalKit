@@ -149,6 +149,7 @@ class TestApertus1p5Tokenization(unittest.TestCase):
         model.tokenizer = FakeTokenizer()
         model.chat_template_str = "template"
         model.enable_thinking = False
+        model.max_model_len = None
 
         token_ids = model._tokenize_messages([{"role": "user", "content": [{"type": "text", "text": "hello"}]}])
 
