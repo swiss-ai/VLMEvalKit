@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from decord import VideoReader, cpu
 from PIL import Image
 
 from .base import BaseModel
@@ -127,6 +126,7 @@ class CambrianS(BaseModel):
         return target_fps, max_frames
 
     def _process_video_with_decord(self, video_file: str, num_threads: int = 0):
+        from decord import VideoReader, cpu
         vr = VideoReader(video_file, ctx=cpu(0), num_threads=num_threads)
 
         total_frame_num = len(vr)

@@ -7,7 +7,6 @@ import logging
 import math
 from typing import Optional
 
-import decord
 import numpy as np
 import torch
 from PIL import Image
@@ -258,6 +257,7 @@ class VLM3R(BaseModel):
         return outputs
 
     def get_video_frames(self, vid_path):
+        import decord
 
         vid = decord.VideoReader(vid_path)
         video_nframes = len(vid)

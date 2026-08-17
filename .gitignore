@@ -204,6 +204,12 @@ vlmeval/gemini_tmp.py
 run.sh
 run_g.sh
 tmp/
+.tmp/
+# Glibc core dumps from in-container crashes (rank SIGABRT, etc.)
+core_*
+core.*
+# Per-run interactive eval state (not part of the persistent benchmark cache).
+.vlmeval/
 InternVL*
 Qwen*
 CongRong*

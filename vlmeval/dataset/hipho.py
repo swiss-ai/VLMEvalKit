@@ -12,7 +12,6 @@ from .utils import build_judge
 from .utils.hipho_prompt_inference import (JUDGE_GRADING_PROMPT_TEMPLATE, RETRY_WARNING_TEMPLATE,
                                            SYSTEM_PROMPTS_EN, SYSTEM_PROMPTS_ZH,
                                            TOTAL_SCORE_WARNING_TEMPLATE)
-from .utils.hipho_verifier import answer_tag_reward_fn_for_r1
 
 FAIL_MSG = 'Failed to obtain answer via API.'
 
@@ -576,6 +575,8 @@ class HiPhODataset(ImageBaseDataset):
         return 0.0, []
 
     def _evaluate_coarse_grained(self, prediction, ground_truth, answer_type, unit, points, question, judge_model=None):
+        from .utils.hipho_verifier import answer_tag_reward_fn_for_r1
+
         """Coarse-grained evaluation based on hipho_verifier answer matching"""
         extracted_pred = ""
 

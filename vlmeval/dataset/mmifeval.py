@@ -9,6 +9,7 @@ from vlmeval.smp import dump, get_intermediate_file_path, get_logger, load, toli
 from vlmeval.utils import track_progress_rich
 from .image_base import ImageBaseDataset
 from .utils import DEBUG_MESSAGE, build_judge
+from .utils.mmif.function_and_compare import *  # noqa: F401,F403 (rule-based verifiers resolved via globals())
 
 logger = get_logger(__name__)
 

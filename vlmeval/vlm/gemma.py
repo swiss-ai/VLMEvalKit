@@ -100,7 +100,9 @@ class Gemma3(BaseModel):
             # export VLLM_WORKER_MULTIPROC_METHOD=spawn
         else:
             self.model = Gemma3ForConditionalGeneration.from_pretrained(
-                model_path, device_map="cuda", attn_implementation="flash_attention_2", torch_dtype=torch.bfloat16
+                model_path, device_map="cuda",
+                attn_implementation=kwargs.pop("attn_implementation", "sdpa"),
+                torch_dtype=torch.bfloat16,
             ).eval()
             self.device = self.model.device
 
@@ -196,6 +198,9 @@ class Gemma3(BaseModel):
             generation = generation[0][input_len:]
 
         decoded = self.processor.decode(generation, skip_special_tokens=True)
+        # transformers 5.x gemma4 processors decode into a chat message dict.
+        if isinstance(decoded, dict):
+            decoded = decoded.get('content', '')
         return decoded
 
     def generate_inner_vllm(self, message, dataset=None):
@@ -238,6 +243,9 @@ class Gemma4(BaseModel):
 
     def __init__(self, model_path='google/gemma-4-E2B-it', **kwargs):
         self.use_vllm = kwargs.pop('use_vllm', False)
+        # Cache-fingerprint identity: transformers-path and vLLM-path predictions
+        # must never replay for each other.
+        self.serving_path = 'vllm' if self.use_vllm else 'hf'
         self.limit_mm_per_prompt = kwargs.pop('limit_mm_per_prompt', 24)
         self.model_path = model_path
 
@@ -245,15 +253,16 @@ class Gemma4(BaseModel):
             from transformers import AutoProcessor
 
             if not self.use_vllm:
+                # Dispatch through the Auto class: the concrete
+                # Gemma4ForConditionalGeneration silently builds the encoder
+                # topology for gemma4_unified checkpoints (12B), which loads
+                # but breaks at the patch projection.
                 try:
-                    from transformers import Gemma4ForConditionalGeneration
+                    from transformers import \
+                        AutoModelForMultimodalLM as Gemma4ForConditionalGeneration
                 except ImportError:
-                    try:
-                        from transformers import \
-                            AutoModelForMultimodalLM as Gemma4ForConditionalGeneration
-                    except ImportError:
-                        from transformers import \
-                            AutoModelForImageTextToText as Gemma4ForConditionalGeneration
+                    from transformers import \
+                        AutoModelForImageTextToText as Gemma4ForConditionalGeneration
         except Exception as e:
             logging.critical('Please install torch and a recent transformers version.')
             raise e
@@ -397,9 +406,18 @@ class Gemma4(BaseModel):
 
         decoded = self.processor.decode(generation, skip_special_tokens=False)
         if hasattr(self.processor, 'parse_response'):
-            decoded = self.processor.parse_response(decoded)
+            # transformers 5's parse_response requires prefix= (the text before
+            # generation); decoded is already the post-input span, so an empty
+            # prefix is correct. Fall back to the raw decode if the call rejects.
+            try:
+                decoded = self.processor.parse_response(decoded, prefix='')
+            except TypeError:
+                decoded = self.processor.parse_response(decoded)
+            except Exception:
+                pass
             if isinstance(decoded, dict):
-                decoded = decoded.get('answer', decoded.get('response', str(decoded)))
+                decoded = (decoded.get('answer') or decoded.get('response')
+                           or decoded.get('content') or str(decoded))
             elif isinstance(decoded, tuple):
                 decoded = decoded[-1]
         return self.extract_response_for_eval(decoded)

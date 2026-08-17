@@ -583,53 +583,85 @@ class MathVista(ImageBaseDataset):
         else:
             return self.evaluate_heuristic(eval_file, **judge_kwargs)
 
-    # It returns a DataFrame
+    # It returns a DataFrame.
+    # NOTE: MathVision.evaluate_heuristic below is structurally the same
+    # two-phase (rule-based prefetch -> LLM judge on the residue) algorithm,
+    # including the no-judge partial-score fallback. If a third benchmark
+    # adopts this pattern, extract a shared helper to vlmeval/dataset/utils/
+    # rather than ship a third copy.
     @classmethod
     def evaluate_heuristic(self, eval_file, **judge_kwargs):
-        from .utils.mathvista import MathVista_acc, MathVista_auxeval
+        from .utils.mathvista import MathVista_acc, MathVista_auxeval, post_check
 
         model = judge_kwargs['model']
         storage = get_intermediate_file_path(eval_file, f'_{model}')
         tmp_file = get_intermediate_file_path(eval_file, f'_{model}', 'pkl')
         nproc = judge_kwargs.pop('nproc', 4)
+        # Defaults to storage; switched to a sibling `_partial.xlsx` path if we end up
+        # skipping rows because no judge is available, so `storage` stays
+        # uncached and a future --mode eval rerun retries the skipped rows.
+        result_path = storage
 
         if not osp.exists(storage):
             data = load(eval_file)
-            model = build_judge(max_tokens=128, **judge_kwargs)
-            assert model.working(), 'MathVista evaluation requires a working OPENAI API\n' + DEBUG_MESSAGE
-            lt = len(data)
-            lines = [data.iloc[i] for i in range(lt)]
-            tups = [(model, line) for line in lines]
-            indices = [line['index'] for line in lines]
+            lines = [data.iloc[i] for i in range(len(data))]
+            ans = load(tmp_file) if osp.exists(tmp_file) else {}
 
-            ans = {}
-            if osp.exists(tmp_file):
-                ans = load(tmp_file)
-            tups = [x for x, i in zip(tups, indices) if i not in ans]
-            indices = [i for i in indices if i not in ans]
+            # Phase 1: rule-based prefetch for every still-unanswered row.
+            # MathVista's multi_choice subset (~54%) and many free-form rows
+            # with bare numeric answers extract correctly without GPT.
+            # Collect the remainder in the same pass to avoid a second walk.
+            remaining = []
+            new_prefetched = 0
+            for line in lines:
+                idx = line['index']
+                if idx in ans:
+                    continue
+                res = post_check(line, prefetch=True)
+                if res is not False:
+                    ans[idx] = {'log': 'Prefetch succeed', 'res': res}
+                    new_prefetched += 1
+                else:
+                    remaining.append(line)
+            if new_prefetched:
+                dump(ans, tmp_file)
 
-            if len(indices):
-                new_results = track_progress_rich(
-                    MathVista_auxeval,
-                    tups,
-                    nproc=nproc,
-                    chunksize=nproc,
-                    keys=indices,
-                    save=tmp_file,
-                )
-                ans = load(tmp_file)
-                for k, v in zip(indices, new_results):
-                    assert k in ans
-                    assert ans[k]['log'] == v['log'] and ans[k]['res'] == v[
-                        'res']
+            # Phase 2: LLM judge on the residue, or partial-score fallback.
+            if remaining:
+                judge = build_judge(max_tokens=128, **judge_kwargs)
+                if judge.working():
+                    indices = [line['index'] for line in remaining]
+                    # track_progress_rich is the sole writer of tmp_file here
+                    # and returns the same dicts it persists, so we merge
+                    # in-memory rather than reload + re-assert disk contents.
+                    new_results = track_progress_rich(
+                        MathVista_auxeval,
+                        [(judge, line) for line in remaining],
+                        nproc=nproc,
+                        chunksize=nproc,
+                        keys=indices,
+                        save=tmp_file,
+                    )
+                    for k, v in zip(indices, new_results):
+                        ans[k] = v
+                else:
+                    warnings.warn(
+                        f'MathVista: {len(remaining)} row(s) need an LLM judge but '
+                        f'none is available. Reporting partial score over the '
+                        f'{len(lines) - len(remaining)} prefetched rows. Re-run '
+                        f'with --mode eval after setting OPENAI_API_KEY to score '
+                        f'the rest.\n' + DEBUG_MESSAGE
+                    )
+                    for line in remaining:
+                        ans[line['index']] = {'log': 'Skipped (no judge)', 'res': ''}
+                    result_path = get_intermediate_file_path(storage, '_partial')
 
             data['res'] = [ans[idx]['res'] for idx in data['index']]
             data['log'] = [ans[idx]['log'] for idx in data['index']]
-            dump(data, storage)
+            dump(data, result_path)
 
-        score = MathVista_acc(storage)
-        score_pth = get_intermediate_file_path(storage, '_score', 'csv')
-        dump(score, score_pth)
+        score = MathVista_acc(result_path)
+        dump(score, get_intermediate_file_path(result_path, '_score', 'csv'))
         return score
 
     # It returns a DataFrame
@@ -860,7 +892,7 @@ class MathVision(ImageBaseDataset):
             return self.evaluate_heuristic(eval_file, **judge_kwargs)
 
     def evaluate_heuristic(self, eval_file, **judge_kwargs):
-        from .utils.mathv import MATH_V_acc, MATH_V_auxeval
+        from .utils.mathv import MATH_V_acc, MATH_V_auxeval, post_check
 
         if 'model' in judge_kwargs:
             model = judge_kwargs['model']
@@ -869,44 +901,71 @@ class MathVision(ImageBaseDataset):
         storage = get_intermediate_file_path(eval_file, f'_{model}')
         tmp_file = get_intermediate_file_path(eval_file, f'_{model}', 'pkl')
         nproc = judge_kwargs.pop('nproc', 4)
+        # Defaults to storage; switched to a sibling `_partial.xlsx` path if we end up
+        # skipping rows because no judge is available, so `storage` stays
+        # uncached and a future --mode eval rerun retries the skipped rows.
+        result_path = storage
 
         if not osp.exists(storage):
             data = load(eval_file)
-            model = build_judge(max_tokens=128, **judge_kwargs)
-            assert model.working(), 'MATH-Vision evaluation requires a working OPENAI API\n' + DEBUG_MESSAGE
-            lt = len(data)
-            lines = [data.iloc[i] for i in range(lt)]
-            tups = [(model, line) for line in lines]
-            indices = [line['index'] for line in lines]
+            lines = [data.iloc[i] for i in range(len(data))]
+            ans = load(tmp_file) if osp.exists(tmp_file) else {}
 
-            ans = {}
-            if osp.exists(tmp_file):
-                ans = load(tmp_file)
-            tups = [x for x, i in zip(tups, indices) if i not in ans]
-            indices = [i for i in indices if i not in ans]
+            # Phase 1: rule-based prefetch for every still-unanswered row.
+            # MATH-Vision is 100% MCQ, so can_infer handles all rows when the
+            # model output cleanly contains the option letter. Collect the
+            # remainder in the same pass to avoid a second walk.
+            remaining = []
+            new_prefetched = 0
+            for line in lines:
+                idx = line['index']
+                if idx in ans:
+                    continue
+                res = post_check(line, prefetch=True)
+                if res is not False:
+                    ans[idx] = {'log': 'Prefetch succeed', 'res': res}
+                    new_prefetched += 1
+                else:
+                    remaining.append(line)
+            if new_prefetched:
+                dump(ans, tmp_file)
 
-            if len(indices):
-                new_results = track_progress_rich(
-                    MATH_V_auxeval,
-                    tups,
-                    nproc=nproc,
-                    chunksize=nproc,
-                    keys=indices,
-                    save=tmp_file,
-                )
-                ans = load(tmp_file)
-                for k, v in zip(indices, new_results):
-                    assert k in ans
-                    assert ans[k]['log'] == v['log'] and ans[k]['res'] == v[
-                        'res']
+            # Phase 2: LLM judge on the residue, or partial-score fallback.
+            if remaining:
+                judge = build_judge(max_tokens=128, **judge_kwargs)
+                if judge.working():
+                    indices = [line['index'] for line in remaining]
+                    # track_progress_rich is the sole writer of tmp_file here
+                    # and returns the same dicts it persists, so we merge
+                    # in-memory rather than reload + re-assert disk contents.
+                    new_results = track_progress_rich(
+                        MATH_V_auxeval,
+                        [(judge, line) for line in remaining],
+                        nproc=nproc,
+                        chunksize=nproc,
+                        keys=indices,
+                        save=tmp_file,
+                    )
+                    for k, v in zip(indices, new_results):
+                        ans[k] = v
+                else:
+                    warnings.warn(
+                        f'MATH-Vision: {len(remaining)} row(s) need an LLM judge but '
+                        f'none is available. Reporting partial score over the '
+                        f'{len(lines) - len(remaining)} prefetched rows. Re-run '
+                        f'with --mode eval after setting OPENAI_API_KEY to score '
+                        f'the rest.\n' + DEBUG_MESSAGE
+                    )
+                    for line in remaining:
+                        ans[line['index']] = {'log': 'Skipped (no judge)', 'res': ''}
+                    result_path = get_intermediate_file_path(storage, '_partial')
 
             data['res'] = [ans[idx]['res'] for idx in data['index']]
             data['log'] = [ans[idx]['log'] for idx in data['index']]
-            dump(data, storage)
+            dump(data, result_path)
 
-        score = MATH_V_acc(storage)
-        score_pth = get_intermediate_file_path(storage, '_score', 'csv')
-        dump(score, score_pth)
+        score = MATH_V_acc(result_path)
+        dump(score, get_intermediate_file_path(result_path, '_score', 'csv'))
         return score
 
     # It returns a DataFrame
@@ -2058,7 +2117,7 @@ class MMVet(ImageBaseDataset):
         nproc = judge_kwargs.pop('nproc', 4)
         if not osp.exists(storage):
             data = load(eval_file)
-            model = build_judge(max_tokens=3, **judge_kwargs)
+            model = build_judge(max_tokens=2048, **judge_kwargs)
             assert model.working(), 'MMVet evaluation requires a working OPENAI API\n' + DEBUG_MESSAGE
 
             lt = len(data)

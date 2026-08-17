@@ -147,6 +147,11 @@ class NumpyEncoder(json.JSONEncoder):
 
 # LOAD & DUMP
 def dump(data, f, **kwargs):
+    """Serialize data to f by suffix; creates parent directories."""
+    parent = osp.dirname(str(f))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
     def dump_pkl(data, pth, **kwargs):
         pickle.dump(data, open(pth, 'wb'))
 
@@ -163,7 +168,12 @@ def dump(data, f, **kwargs):
             fout.write('\n'.join(lines))
 
     def dump_xlsx(data, f, **kwargs):
-        data.to_excel(f, index=False, engine='xlsxwriter')
+        with pd.ExcelWriter(
+            f,
+            engine='xlsxwriter',
+            engine_kwargs={'options': {'strings_to_formulas': False}},
+        ) as writer:
+            data.to_excel(writer, index=False)
 
     def dump_csv(data, f, quoting=csv.QUOTE_ALL):
         data.to_csv(f, index=False, encoding='utf-8', quoting=quoting)
@@ -204,14 +214,14 @@ def get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True):
     if use_env_format:
         file_format = get_pred_file_format()
         if file_format == 'xlsx':
-            return osp.join(work_dir, f'{model_name}_{dataset_name}.xlsx')
+            return osp.join(work_dir, f'{dataset_name}.xlsx')
         elif file_format == 'tsv':
-            return osp.join(work_dir, f'{model_name}_{dataset_name}.tsv')
+            return osp.join(work_dir, f'{dataset_name}.tsv')
         elif file_format == 'json':
-            return osp.join(work_dir, f'{model_name}_{dataset_name}.json')
+            return osp.join(work_dir, f'{dataset_name}.json')
     else:
         # default
-        return osp.join(work_dir, f'{model_name}_{dataset_name}.xlsx')
+        return osp.join(work_dir, f'{dataset_name}.xlsx')
 
 
 def get_eval_file_path(eval_file, judge_model, use_env_format=True):
@@ -498,7 +508,9 @@ def find_prediction_files(run_dir, model_name, dataset_name):
     if not osp.isdir(run_dir):
         return []
     files = ls(run_dir, match=f'{model_name}_{dataset_name}.', mode='file')
-    files = _filter_shadow_dataset_files(files, model_name, dataset_name)
+    unprefixed = ls(run_dir, match=f'{dataset_name}.', mode='file')
+    files += [x for x in unprefixed if osp.basename(x).startswith(f'{dataset_name}.')]
+    files = _filter_shadow_dataset_files(sorted(set(files)), model_name, dataset_name)
     return sorted(files)
 
 
@@ -670,9 +682,14 @@ def fetch_aux_files(eval_file):
     else:
         model_name = eval_id
 
-    dataset_name = osp.splitext(file_name)[0][len(model_name) + 1:]
+    if file_name.startswith(f'{model_name}_'):
+        dataset_name = osp.splitext(file_name)[0][len(model_name) + 1:]
+    else:
+        dataset_name = osp.splitext(file_name)[0]
     fs = ls(file_root, match=f'{model_name}_{dataset_name}', mode='file')
-    return _filter_shadow_dataset_files(fs, model_name, dataset_name)
+    fs += [x for x in ls(file_root, match=dataset_name, mode='file')
+           if osp.basename(x).startswith((f'{dataset_name}_', f'{dataset_name}.'))]
+    return _filter_shadow_dataset_files(sorted(set(fs)), model_name, dataset_name)
 
 
 def get_file_extension(file_path):

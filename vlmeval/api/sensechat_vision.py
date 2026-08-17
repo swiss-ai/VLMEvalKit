@@ -331,7 +331,7 @@ class SenseChatVisionV2API(BaseAPI):
         self.timeout = timeout
         super().__init__(retry=retry, system_prompt=system_prompt, verbose=verbose, **kwargs)
 
-        self.logger.info(f'Using API Base: {self.api_base}; API Key: {self.key}')
+        self.logger.info(f'Using API Base: {self.api_base}; API Key: {(str(self.key)[:3] + '...' + str(self.key)[-4:]) if self.key else '***'}')
 
     def generate(self, message, dataset=None):
         return super(SenseChatVisionV2API, self).generate(message)

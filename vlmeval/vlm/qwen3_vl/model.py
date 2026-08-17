@@ -9,7 +9,7 @@ from vlmeval.smp import get_gpu_memory, listinstr
 from ..base import BaseModel
 from .prompt import Qwen3VLPromptMixin
 
-VLLM_MAX_IMAGE_INPUT_NUM = 24
+VLLM_MAX_IMAGE_INPUT_NUM = int(os.environ.get('VLLM_MAX_IMAGE_INPUT_NUM', 24))
 
 
 def is_moe_model(model_path: str) -> bool:

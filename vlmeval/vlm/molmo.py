@@ -210,3 +210,48 @@ class molmo(BaseModel):
         # print(dataset, prompt, generated_text, inputs['images'].size()) # uncomment to debug
 
         return generated_text
+
+
+class Molmo2(BaseModel):
+
+    INSTALL_REQ = False
+    INTERLEAVE = True
+
+    def __init__(self, model_path='allenai/Molmo2-8B', **kwargs):
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+        self.model_path = model_path
+        self.model = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+            torch_dtype=torch.bfloat16,
+            device_map='cuda',
+        ).eval()
+        self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+        default_kwargs = {'do_sample': False, 'max_new_tokens': 2048}
+        default_kwargs.update(kwargs)
+        self.kwargs = default_kwargs
+
+    def generate_inner(self, message, dataset=None):
+        content = []
+        for m in message:
+            if m['type'] == 'text':
+                content.append(dict(type='text', text=m['value']))
+            elif m['type'] == 'image':
+                content.append(dict(type='image', image=m['value']))
+        messages = [dict(role='user', content=content)]
+
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors='pt',
+            return_dict=True,
+        )
+        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+
+        with torch.inference_mode():
+            generated_ids = self.model.generate(**inputs, **self.kwargs)
+
+        generated_tokens = generated_ids[0, inputs['input_ids'].size(1):]
+        return self.processor.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()

@@ -392,6 +392,10 @@ def _resolve_prediction_file(run_dir, model_name, dataset_name, prediction_file)
             return pred_path
 
     candidates = find_prediction_files(str(run_dir), model_name, dataset_name)
+    for preferred in (f'{dataset_name}.xlsx', f'{model_name}_{dataset_name}.xlsx'):
+        exact = [x for x in candidates if Path(x).name == preferred]
+        if exact:
+            return Path(exact[0])
     return Path(candidates[0]) if candidates else None
 
 

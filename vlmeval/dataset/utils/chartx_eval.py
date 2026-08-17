@@ -2,7 +2,6 @@
 import json
 import re
 
-import Levenshtein
 import numpy as np
 
 # --- SCRM Logic ---
@@ -81,6 +80,8 @@ def process_triplets(triplets):
 
 
 def intersection_with_tolerance(a, b, tol_word, tol_num):
+    import Levenshtein
+
     a = set(a)
     b = set(b)
     c = set()

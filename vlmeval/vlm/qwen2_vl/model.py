@@ -1,4 +1,5 @@
 from __future__ import annotations
+import importlib.util
 import json
 import logging
 import math
@@ -14,7 +15,7 @@ from vlmeval.smp import get_cache_path, get_gpu_memory, listinstr
 from ..base import BaseModel
 from .prompt import Qwen2VLPromptMixin
 
-VLLM_MAX_IMAGE_INPUT_NUM = 24
+VLLM_MAX_IMAGE_INPUT_NUM = int(os.environ.get('VLLM_MAX_IMAGE_INPUT_NUM', 24))
 
 
 def ensure_image_url(image: str) -> str:
@@ -308,8 +309,9 @@ class Qwen2VLChat(Qwen2VLPromptMixin, BaseModel):
             torch.cuda.set_device(0)
             self.device = 'cuda'
         else:
+            attn_impl = 'flash_attention_2' if importlib.util.find_spec('flash_attn') else 'sdpa'
             self.model = MODEL_CLS.from_pretrained(
-                model_path, torch_dtype='auto', device_map="auto", attn_implementation='flash_attention_2'
+                model_path, torch_dtype='auto', device_map="auto", attn_implementation=attn_impl
             )
             self.model.eval()
 

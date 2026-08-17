@@ -80,6 +80,10 @@ ungrouped = {
         vlm.RBDash, model_path="RBDash-Team/RBDash-v1.5", root=RBDash_ROOT
     ),
     "Pixtral-12B": partial(vlm.Pixtral, model_path="mistralai/Pixtral-12B-2409"),
+    "pixtral-12b": partial(
+        vlm.LLaVA_Next, model_path="mistral-community/pixtral-12b",
+        torch_dtype="bfloat16",
+    ),
     "Ministral-3-14B-Instruct-2512_api": partial(
         api.LMDeployAPI,
         api_base="http://0.0.0.0:8000/v1/chat/completions",
@@ -468,23 +472,16 @@ api_models = {
         retry=10,
     ),
     # MiniMax (set MINIMAX_API_KEY)
+    "MiniMax-M3": partial(
+        api.MiniMaxAPI,
+        model="MiniMax-M3",
+        temperature=0,
+        max_tokens=2048,
+        retry=10,
+    ),
     "MiniMax-M2.7": partial(
         api.MiniMaxAPI,
         model="MiniMax-M2.7",
-        temperature=0,
-        max_tokens=2048,
-        retry=10,
-    ),
-    "MiniMax-M2.5": partial(
-        api.MiniMaxAPI,
-        model="MiniMax-M2.5",
-        temperature=0,
-        max_tokens=2048,
-        retry=10,
-    ),
-    "MiniMax-M2.5-highspeed": partial(
-        api.MiniMaxAPI,
-        model="MiniMax-M2.5-highspeed",
         temperature=0,
         max_tokens=2048,
         retry=10,
@@ -952,6 +949,12 @@ minicpm_series = {
     "MiniCPM-V-4": partial(vlm.MiniCPM_V_4, model_path="openbmb/MiniCPM-V-4"),
     "MiniCPM-V-4_5": partial(vlm.MiniCPM_V_4_5, model_path="openbmb/MiniCPM-V-4_5"),
     "MiniCPM-o-4_5": partial(vlm.MiniCPM_o_4_5, model_path="openbmb/MiniCPM-o-4_5"),
+    # Set use_upsize=True to reproduce the reported MiniCPM-V-4.6 evaluation scores.
+    "MiniCPM-V-4_6": partial(vlm.MiniCPM_V_4_6, model_path="openbmb/MiniCPM-V-4.6", use_upsize=False),
+    # Set use_upsize=True to reproduce the reported MiniCPM-V-4.6-Thinking evaluation scores.
+    "MiniCPM-V-4_6-Thinking": partial(
+        vlm.MiniCPM_V_4_6_Thinking, model_path="openbmb/MiniCPM-V-4.6-Thinking", use_upsize=False
+    ),
     "MiniCPM-o-4_5_api": partial(
         api.LMDeployAPI,
         api_base="http://0.0.0.0:8000/v1/chat/completions",
@@ -1031,6 +1034,10 @@ llava_series = {
     "sharegpt4v_13b": partial(vlm.LLaVA, model_path="Lin-Chen/ShareGPT4V-13B"),
     "llava_next_vicuna_7b": partial(
         vlm.LLaVA_Next, model_path="llava-hf/llava-v1.6-vicuna-7b-hf"
+    ),
+    "EuroVLM-9B-Preview": partial(
+        vlm.LLaVA_Next, model_path="utter-project/EuroVLM-9B-Preview",
+        torch_dtype="bfloat16",
     ),
     "llava_next_vicuna_13b": partial(
         vlm.LLaVA_Next, model_path="llava-hf/llava-v1.6-vicuna-13b-hf"
@@ -2008,6 +2015,7 @@ qwen2vl_series = {
         min_pixels=1280 * 28 * 28,
         max_pixels=16384 * 28 * 28,
         use_custom_prompt=False,
+        use_vllm=True,
     ),
     "Qwen2.5-VL-7B-Instruct-ForVideo": partial(
         vlm.Qwen2VLChat,
@@ -2174,6 +2182,8 @@ molmo_series = {
     "molmo-7B-D-0924": partial(vlm.molmo, model_path="allenai/Molmo-7B-D-0924"),
     "molmo-7B-O-0924": partial(vlm.molmo, model_path="allenai/Molmo-7B-O-0924"),
     "molmo-72B-0924": partial(vlm.molmo, model_path="allenai/Molmo-72B-0924"),
+    "Molmo2-8B": partial(vlm.Molmo2, model_path="allenai/Molmo2-8B"),
+    "Molmo2-4B": partial(vlm.Molmo2, model_path="allenai/Molmo2-4B"),
 }
 
 kosmos_series = {
@@ -2277,6 +2287,7 @@ gemma_series = {
 
     'Gemma4-E2B-it': partial(vlm.Gemma4, model_path='google/gemma-4-E2B-it'),
     'Gemma4-E4B-it': partial(vlm.Gemma4, model_path='google/gemma-4-E4B-it'),
+    'Gemma4-12B-it': partial(vlm.Gemma4, model_path='google/gemma-4-12B-it', use_vllm=True),
     'Gemma4-31B-it': partial(vlm.Gemma4, model_path='google/gemma-4-31B-it'),
     'Gemma4-26B-A4B-it': partial(vlm.Gemma4, model_path='google/gemma-4-26B-A4B-it')
 }
@@ -2650,7 +2661,59 @@ nanovlm_series = {
     "nanoVLM-230M-8k": partial(vlm.NanoVLM, model_path="lusxvr/nanoVLM-230M-8k"),
 }
 
+# Apertus 1.5 is registered ONCE by architecture, not per checkpoint. The
+# launcher passes the checkpoint by path: APERTUS_RUN_NAME is the supported_VLM
+# key (the run identity in the output tree), APERTUS_MODEL_PATH the checkpoint;
+# thinking and sampling come from the launcher CLI via env.
+apertus_series = {}
+_apertus_run = os.environ.get("APERTUS_RUN_NAME")
+if _apertus_run:
+    _apertus_kw = {}
+    for _env, _kw, _cast in (
+        ("APERTUS_MODEL_PATH", "model_path", str),
+        ("APERTUS_TOKENIZER_PATH", "tokenizer_path", str),
+        ("APERTUS_TEMPERATURE", "temperature", float),
+        ("APERTUS_TOP_P", "top_p", float),
+        ("APERTUS_REPETITION_PENALTY", "repetition_penalty", float),
+        ("APERTUS_MAX_NEW_TOKENS", "max_new_tokens", int),
+        ("APERTUS_MAX_MODEL_LEN", "max_model_len", int),
+        ("APERTUS_TENSOR_PARALLEL_SIZE", "tp_size", int),
+        ("APERTUS_GPU_MEMORY_UTILIZATION", "gpu_memory_utilization", float),
+    ):
+        _val = os.environ.get(_env)
+        if _val:
+            _apertus_kw[_kw] = _cast(_val)
+    if os.environ.get("APERTUS_ENABLE_THINKING", "").strip().lower() in ("1", "true", "t", "yes", "y", "on"):
+        _apertus_kw["enable_thinking"] = True
+    apertus_series[_apertus_run] = partial(vlm.Apertus1p5, **_apertus_kw)
+
 model_groups.append(nanovlm_series)
+model_groups.append(apertus_series)
+
+# APERTUS_RUN_NAME names a new Apertus run; shadowing a registered model would
+# silently evaluate the wrong weights under that model's name (launch foreign
+# models with FOREIGN_MODEL=1 so the launcher never exports APERTUS_RUN_NAME).
+if _apertus_run and any(_apertus_run in grp for grp in model_groups if grp is not apertus_series):
+    raise ValueError(
+        f"APERTUS_RUN_NAME={_apertus_run!r} collides with a registered model; "
+        "pick a distinct run name or set FOREIGN_MODEL=1 for foreign models."
+    )
 
 for grp in model_groups:
     supported_VLM.update(grp)
+
+# Point registry entries at local checkpoints without editing this file:
+# VLMEVAL_MODEL_PATH_OVERRIDES="Gemma4-12B-it=/store/.../gemma-4-12B-it;Name=path".
+# Entries must already exist and take model_path; bad specs fail loud.
+_path_overrides = os.environ.get("VLMEVAL_MODEL_PATH_OVERRIDES", "")
+for _pair in filter(None, (p.strip() for p in _path_overrides.split(";"))):
+    _name, _sep, _path = _pair.partition("=")
+    _name, _path = _name.strip(), _path.strip()
+    if not _sep or not _path:
+        raise ValueError(f"VLMEVAL_MODEL_PATH_OVERRIDES: malformed entry {_pair!r}")
+    if _name not in supported_VLM:
+        raise ValueError(f"VLMEVAL_MODEL_PATH_OVERRIDES: unknown model {_name!r}")
+    _fn = supported_VLM[_name]
+    if not (isinstance(_fn, partial) and "model_path" in _fn.keywords):
+        raise ValueError(f"VLMEVAL_MODEL_PATH_OVERRIDES: {_name!r} takes no model_path")
+    supported_VLM[_name] = partial(_fn.func, *_fn.args, **{**_fn.keywords, "model_path": _path})

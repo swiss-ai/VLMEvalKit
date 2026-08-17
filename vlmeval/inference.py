@@ -10,6 +10,8 @@ from tqdm import tqdm
 from vlmeval.config import supported_VLM
 from vlmeval.smp import (dump, get_logger, get_pred_file_format, get_pred_file_path,
                          get_rank_and_world_size, load)
+from vlmeval.smp.distributed_env import without_torchrun_env
+from vlmeval.smp.response_cache import ResponseCache
 from vlmeval.utils import track_progress_rich
 
 logger = get_logger(__name__)
@@ -99,7 +101,7 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
 
 
 def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4, use_vllm=False,
-               retry_failed=True):
+               retry_failed=True, response_cache=None):
     dataset_name = dataset.dataset_name
     prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
     res = load(prev_file) if osp.exists(prev_file) else {}
@@ -132,17 +134,17 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         'Llama-4' in model_name
         or 'Qwen2-VL' in model_name
         or 'Qwen2.5-VL' in model_name
+        or 'Gemma4' in model_name
     ):
         kwargs = {'use_vllm': use_vllm}
 
     # (25.06.05) In newer version of transformers (after 4.50), with device_map='auto' and torchrun launcher,
     # Transformers automatically adopt TP parallelism, which leads to compatibility problems with VLMEvalKit
     # (In VLMEvalKit, we use torchrun to launch multiple model instances on a single node).
-    # To bypass this problem, we unset `WORLD_SIZE` before building the model to not use TP parallel.
-    ws_bak = os.environ.pop('WORLD_SIZE', None)
-    model = supported_VLM[model_name](**kwargs) if isinstance(model, str) else model
-    if ws_bak:
-        os.environ['WORLD_SIZE'] = ws_bak
+    # Transformers 5.x additionally reads LOCAL_RANK/RANK for device placement, so we
+    # drop the whole torchrun env for the duration of the build (restored afterwards).
+    with without_torchrun_env():
+        model = supported_VLM[model_name](**kwargs) if isinstance(model, str) else model
 
     is_api = getattr(model, 'is_api', False)
     if is_api:
@@ -176,17 +178,29 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         else:
             struct = dataset.build_prompt(data.iloc[i])
 
-        # If `SKIP_ERR` flag is set, the model will skip the generation if error is encountered
-        if os.environ.get('SKIP_ERR', False) == '1':
-            FAIL_MSG = 'Failed to obtain answer'
-            try:
-                response = model.generate(message=struct, dataset=dataset_name)
-            except RuntimeError as err:
-                torch.cuda.synchronize()
-                warnings.warn(f'{type(err)} {str(err)}')
-                response = f'{FAIL_MSG}: {type(err)} {str(err)}'
+        def generate_response():
+            # If `SKIP_ERR` flag is set, the model will skip the generation if error is encountered
+            if os.environ.get('SKIP_ERR', False) == '1':
+                fail_msg = 'Failed to obtain answer'
+                try:
+                    return model.generate(message=struct, dataset=dataset_name)
+                except RuntimeError as err:
+                    torch.cuda.synchronize()
+                    warnings.warn(f'{type(err)} {str(err)}')
+                    return f'{fail_msg}: {type(err)} {str(err)}'
+            return model.generate(message=struct, dataset=dataset_name)
+
+        if response_cache is not None:
+            response = response_cache.get_or_generate(
+                model=model,
+                model_name=model_name,
+                dataset_name=dataset_name,
+                sample_index=idx,
+                message=struct,
+                generate_fn=generate_response,
+            )
         else:
-            response = model.generate(message=struct, dataset=dataset_name)
+            response = generate_response()
         torch.cuda.empty_cache()
 
         if verbose:
@@ -208,7 +222,8 @@ def _is_structured_record(v):
 
 # A wrapper for infer_data, do the pre & post processing
 def infer_data_job(
-    model, work_dir, model_name, dataset, verbose=False, api_nproc=4, retry_failed=True, use_vllm=False
+    model, work_dir, model_name, dataset, verbose=False, api_nproc=4, retry_failed=True, use_vllm=False,
+    response_cache=None, cache_run_id=None
 ):
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
@@ -229,10 +244,28 @@ def infer_data_job(
     tmpl = osp.join(work_dir, '{}' + f'{world_size}_{dataset_name}.pkl')
     out_file = tmpl.format(rank)
 
-    model = infer_data(
-        model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
-        out_file=out_file, verbose=verbose, api_nproc=api_nproc, use_vllm=use_vllm,
-        retry_failed=retry_failed)
+    cache = ResponseCache.create(
+        cache_root=response_cache,
+        run_id=cache_run_id,
+        rank=rank,
+        world_size=world_size,
+        model_name=model_name,
+        logger=logger,
+    )
+
+    try:
+        model = infer_data(
+            model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
+            out_file=out_file, verbose=verbose, api_nproc=api_nproc, use_vllm=use_vllm,
+            retry_failed=retry_failed, response_cache=cache if cache else None)
+    except Exception:
+        if cache:
+            cache.close()
+        raise
+
+    if cache:
+        cache.finalize(use_distributed_barrier=world_size > 1)
+
     if world_size > 1:
         dist.barrier()
 

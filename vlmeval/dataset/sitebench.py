@@ -5,7 +5,6 @@ import string
 import warnings
 from collections import OrderedDict
 
-import decord
 import numpy as np
 import pandas as pd
 from huggingface_hub import snapshot_download
@@ -217,9 +216,24 @@ class SiteBenchImage(SiteBenchBase, ImageMCQDataset):
                 s = x.strip()
                 s = os.path.expanduser(os.path.expandvars(s))
 
-                if not dataset_path:
-                    return os.path.normpath(s)
-                return os.path.normpath(os.path.join(dataset_path, s.lstrip(r'\/')))
+                if dataset_path:
+                    s = os.path.normpath(os.path.join(dataset_path, s.lstrip(r'\/')))
+                else:
+                    s = os.path.normpath(s)
+
+                # Some SEED-Bench cc3m images ship without an extension; alias them
+                # to .jpg so mimetype-based content checks recognize them as images.
+                if not os.path.splitext(s)[1]:
+                    alias = s + '.jpg'
+                    if os.path.lexists(alias):
+                        return alias
+                    if os.path.isfile(s):
+                        try:
+                            os.symlink(os.path.basename(s), alias)
+                        except FileExistsError:
+                            pass
+                        return alias
+                return s
 
             def to_abs(p):
                 if isinstance(p, list):
@@ -359,6 +373,8 @@ class SiteBenchVideo(SiteBenchBase, VideoBaseDataset):
         return dict(data_file=new_data_path, root=dataset_path)
 
     def save_video_frames(self, video, video_llm=False):
+        import decord
+
         vid_path = video
         rel_video_path = os.path.relpath(video, self.dataset_path)
 
