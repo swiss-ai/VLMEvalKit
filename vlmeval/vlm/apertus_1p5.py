@@ -102,6 +102,9 @@ class Apertus1p5(BaseModel):
             f"Loading Apertus 1.5 via vLLM: {model_path} "
             f"(TP={tp_size}, thinking={enable_thinking})"
         )
+        engine_extras = {}
+        if os.environ.get("APERTUS_TEXT_ONLY_OUTPUT_VOCAB"):
+            engine_extras["logits_processors"] = ["apertus_text_only_logits:ApertusTextOnlyLogits"]
         with without_torchrun_env():
             self.llm = LLM(
                 model=model_path,
@@ -111,6 +114,7 @@ class Apertus1p5(BaseModel):
                 trust_remote_code=False,
                 max_model_len=max_model_len,
                 hf_overrides={"max_position_embeddings": max_model_len},
+                **engine_extras,
             )
 
         # All fields are fixed at construction; build SamplingParams once
