@@ -181,14 +181,27 @@ class ResponseCache:
             _dist_barrier()
 
         if self.rank == 0:
-            merged = self._merge_rank_databases()
-            if self.logger is not None:
-                self.logger.info(
-                    "Response cache finalized at %s: merged=%s stats=%s",
-                    self.root_db_path,
-                    merged,
-                    self.stats,
-                )
+            # The shared-root merge is a cross-run optimization; per-rank DBs
+            # remain the source of truth, so a lock timeout (concurrent jobs
+            # finalizing against the same cache root) must not fail the run.
+            try:
+                merged = self._merge_rank_databases()
+            except sqlite3.OperationalError as exc:
+                if self.logger is not None:
+                    self.logger.warning(
+                        "Response cache merge into %s skipped: %s (rank DBs kept at %s)",
+                        self.root_db_path,
+                        exc,
+                        self.run_dir,
+                    )
+            else:
+                if self.logger is not None:
+                    self.logger.info(
+                        "Response cache finalized at %s: merged=%s stats=%s",
+                        self.root_db_path,
+                        merged,
+                        self.stats,
+                    )
 
         if use_distributed_barrier:
             _dist_barrier()
