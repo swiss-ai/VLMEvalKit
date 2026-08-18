@@ -5,6 +5,18 @@ import nltk
 from nltk.metrics import f_measure, precision, recall
 from nltk.translate import meteor_score
 
+# Newer nltk caps edit_distance inputs at 2000 chars as a DoS guard for
+# untrusted strings; our transcription outputs are trusted eval data and can
+# legitimately exceed it, so lift the cap to keep the metric unchanged.
+try:
+    from nltk.metrics import distance as _nltk_distance
+    if getattr(_nltk_distance, "MAX_DISTANCE_INPUT_LEN", None) is not None:
+        _nltk_distance.MAX_DISTANCE_INPUT_LEN = max(
+            _nltk_distance.MAX_DISTANCE_INPUT_LEN, 1_000_000
+        )
+except ImportError:
+    pass
+
 
 def contain_chinese_string(text):
     chinese_pattern = re.compile(r'[\u4e00-\u9fa5]')
