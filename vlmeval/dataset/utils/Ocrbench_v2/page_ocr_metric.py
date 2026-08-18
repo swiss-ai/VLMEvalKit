@@ -1,5 +1,6 @@
 import re
 
+import editdistance
 import jieba
 import nltk
 from nltk.metrics import f_measure, precision, recall
@@ -30,7 +31,7 @@ def cal_per_metrics(pred, gt):
 
     metrics["precision"] = precision(reference, hypothesis)
     metrics["recall"] = recall(reference, hypothesis)
-    metrics["edit_dist"] = nltk.edit_distance(pred, gt) / max(len(pred), len(gt))
+    metrics["edit_dist"] = editdistance.eval(pred, gt) / max(len(pred), len(gt))
     return metrics
 
 

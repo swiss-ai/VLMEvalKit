@@ -181,14 +181,27 @@ class ResponseCache:
             _dist_barrier()
 
         if self.rank == 0:
-            merged = self._merge_rank_databases()
-            if self.logger is not None:
-                self.logger.info(
-                    "Response cache finalized at %s: merged=%s stats=%s",
-                    self.root_db_path,
-                    merged,
-                    self.stats,
-                )
+            # The shared-root merge is a cross-run optimization; per-rank DBs
+            # remain the source of truth, so a lock timeout (concurrent jobs
+            # finalizing against the same cache root) must not fail the run.
+            try:
+                merged = self._merge_rank_databases()
+            except sqlite3.OperationalError as exc:
+                if self.logger is not None:
+                    self.logger.warning(
+                        "Response cache merge into %s skipped: %s (rank DBs kept at %s)",
+                        self.root_db_path,
+                        exc,
+                        self.run_dir,
+                    )
+            else:
+                if self.logger is not None:
+                    self.logger.info(
+                        "Response cache finalized at %s: merged=%s stats=%s",
+                        self.root_db_path,
+                        merged,
+                        self.stats,
+                    )
 
         if use_distributed_barrier:
             _dist_barrier()
@@ -214,23 +227,21 @@ class ResponseCache:
                 rank_db = self.run_dir / f"rank_{rank}.db"
                 if not rank_db.exists():
                     continue
-                src_conn = sqlite3.connect(rank_db, timeout=60)
+                # Copy inside SQLite: the rows never enter Python, which keeps
+                # the write lock on the shared root held for as short a time as
+                # possible (every other rank is blocked on the barrier here).
+                root_conn.execute("ATTACH DATABASE ? AS src", (str(rank_db),))
                 try:
-                    _prepare_connection(src_conn)
-                    rows = src_conn.execute(
-                        "SELECT key, value_json, metadata_json, created_at FROM response_cache"
-                    ).fetchall()
+                    cur = root_conn.execute(
+                        """
+                        INSERT OR REPLACE INTO response_cache(key, value_json, metadata_json, created_at)
+                        SELECT key, value_json, metadata_json, created_at FROM src.response_cache
+                        """
+                    )
+                    merged += cur.rowcount if cur.rowcount > 0 else 0
+                    root_conn.commit()
                 finally:
-                    src_conn.close()
-                root_conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO response_cache(key, value_json, metadata_json, created_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    rows,
-                )
-                merged += len(rows)
-            root_conn.commit()
+                    root_conn.execute("DETACH DATABASE src")
         finally:
             root_conn.close()
         return merged
