@@ -10,8 +10,8 @@ import torch.distributed as dist
 from tqdm import tqdm
 
 from vlmeval.config import supported_VLM
-from vlmeval.smp.distributed_env import without_torchrun_env
 from vlmeval.smp import dump, get_pred_file_path, get_rank_and_world_size, load
+from vlmeval.smp.distributed_env import without_torchrun_env
 from vlmeval.utils import track_progress_rich
 
 FAIL_MSG = 'Failed to obtain answer via API.'

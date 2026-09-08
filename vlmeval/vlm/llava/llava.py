@@ -231,8 +231,7 @@ class LLaVA_Next(BaseModel):
 
     def __init__(self, model_path="llava-hf/llava-v1.6-vicuna-7b-hf", **kwargs):
         from transformers import (AutoModelForImageTextToText, AutoProcessor,
-                                  LlavaForConditionalGeneration,
-                                  LlavaNextForConditionalGeneration, LlavaNextProcessor)
+                                  LlavaForConditionalGeneration, LlavaNextProcessor)
 
         self.model_path = model_path
         self.torch_dtype = getattr(torch, kwargs.pop("torch_dtype", "float16"))

@@ -16,8 +16,14 @@ from vlmeval.vlm.base import BaseModel
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL_PATH = "/capstor/store/cscs/swissai/infra01/hf-checkpoints/Apertus-1p5-8B-sft-capfilter-lr6e-5-constant-innovator-fix-it23409"
-DEFAULT_TOKENIZER_PATH = "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed"
+DEFAULT_MODEL_PATH = (
+    "/capstor/store/cscs/swissai/infra01/hf-checkpoints/Apertus-1p5-8B-sft-capfilter-lr6e-5-constant-"
+    "innovator-fix-it23409"
+)
+DEFAULT_TOKENIZER_PATH = (
+    "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct_thinking_"
+    "token_fixed"
+)
 DEFAULT_CHAT_TEMPLATE = os.path.join(DEFAULT_TOKENIZER_PATH, "chat_template.jinja")
 
 _THINKING_MARKERS = (("<think>", "</think>"), ("<|inner_prefix|>", "<|inner_suffix|>"))
@@ -202,7 +208,6 @@ class Apertus1p5(BaseModel):
                 "too many or too large images for one request"
             )
         return tokenized["input_ids"]
-
 
     @staticmethod
     def _strip_thinking(text):

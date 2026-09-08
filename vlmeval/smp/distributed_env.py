@@ -2,7 +2,6 @@
 import os
 from contextlib import contextmanager
 
-
 # Variables torch.distributed.run / torchelastic inject into worker processes.
 # When a wrapper spins up vLLM (which forks its own distributed group),
 # leaving these in the environment makes vLLM rejoin the existing torchelastic

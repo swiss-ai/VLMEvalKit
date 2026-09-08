@@ -2580,7 +2580,9 @@ class VLMBlind(ImageMCQDataset):
     def evaluate(self, eval_file, **judge_kwargs):
         data = load(eval_file)
         # Per-task scorer: (prediction, ground_truth) -> bool.
-        value_match = lambda p, g: self._extract_value(p) == g
+
+        def value_match(p, g):
+            return self._extract_value(p) == g
         scorers = {
             **dict.fromkeys(
                 (

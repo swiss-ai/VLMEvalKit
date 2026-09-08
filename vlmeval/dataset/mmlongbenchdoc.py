@@ -1,4 +1,3 @@
-import warnings
 import base64
 import io
 import logging
@@ -6,6 +5,7 @@ import math
 import os
 import os.path as osp
 import re
+import warnings
 from urllib.request import urlopen
 
 import pandas as pd

@@ -1,7 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-
 MODULE_PATH = Path(__file__).resolve().parents[1] / "vlmeval" / "smp" / "distributed_env.py"
 spec = importlib.util.spec_from_file_location("distributed_env", MODULE_PATH)
 distributed_env = importlib.util.module_from_spec(spec)
