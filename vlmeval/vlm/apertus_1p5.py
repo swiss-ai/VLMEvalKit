@@ -219,7 +219,31 @@ class Apertus1p5(BaseModel):
             answer = text
         return _SPECIAL_TOKEN_RE.sub("", answer).strip()
 
+    _CANARY_PROMPT = "What is 17 multiplied by 23? Think it through before answering."
+
+    def _run_thinking_canary(self):
+        """Prove the engine deliberates before any scored request is generated."""
+        if os.environ.get("APERTUS_SKIP_THINKING_CANARY", "").lower() in ("1", "true", "yes"):
+            logger.warning("apertus_1p5: thinking canary skipped by APERTUS_SKIP_THINKING_CANARY")
+            return
+        from vllm import SamplingParams
+
+        msgs = [{"role": "user", "content": {"parts": [{"type": "text", "text": self._CANARY_PROMPT}]}}]
+        prompt_data = {"prompt_token_ids": self._tokenize_messages(msgs)}
+        params = SamplingParams(max_tokens=512, temperature=0.6, top_p=0.95, skip_special_tokens=False)
+        out = self.llm.generate(prompts=[prompt_data], sampling_params=params)
+        text, n_tokens = out[0].outputs[0].text, len(out[0].outputs[0].token_ids)
+        if "<|inner_prefix|>" not in text:
+            raise RuntimeError(
+                f"thinking canary failed: enable_thinking={self.enable_thinking} but no <|inner_prefix|> "
+                f"in {n_tokens} output tokens: {text[:200]!r}"
+            )
+        logger.info("apertus_1p5: thinking canary passed (%d tokens)", n_tokens)
+
     def generate_inner(self, message, dataset=None):
+        if self.enable_thinking and not getattr(self, "_canary_done", False):
+            self._run_thinking_canary()
+            self._canary_done = True
         msgs, images = self._build_messages(message)
         prompt_data = {"prompt_token_ids": self._tokenize_messages(msgs, images)}
 

@@ -151,13 +151,16 @@ class VsiBench(VideoBaseDataset):
         return dict(data_file=variant_data_file, root=dataset_path)
 
     def save_video_frames(self, video_path, video_llm=False):
-        import decord
+        # torchcodec rather than decord: decord ships no linux-aarch64 wheel
+        # and the conda-forge builds fail in their ffmpeg filter graph at
+        # runtime, while the image builds torchcodec from source for GH200.
+        from torchcodec.decoders import VideoDecoder
 
         vid_path = os.path.join(self.data_root, video_path)
 
-        vid = decord.VideoReader(vid_path)
-        video_nframes = len(vid)
-        video_fps = vid.get_avg_fps()
+        vid = VideoDecoder(vid_path)
+        video_nframes = vid.metadata.num_frames
+        video_fps = vid.metadata.average_fps
         video_info = {
             'fps': video_fps,
             'n_frames': video_nframes,
@@ -197,8 +200,8 @@ class VsiBench(VideoBaseDataset):
         flag = np.all([os.path.exists(p) for p in frame_paths])
 
         if not flag:
-            images = [vid[i].asnumpy() for i in indices]
-            images = [Image.fromarray(arr) for arr in images]
+            batch = vid.get_frames_at(indices).data
+            images = [Image.fromarray(f.permute(1, 2, 0).cpu().numpy()) for f in batch]
             for im, pth in zip(images, frame_paths):
                 if not os.path.exists(pth) and not video_llm:
                     im.save(pth)
@@ -495,13 +498,16 @@ class VsiSuperBase(VideoBaseDataset):
         return dataset_path
 
     def save_video_frames(self, video_path, video_llm=False):
-        import decord
+        # torchcodec rather than decord: decord ships no linux-aarch64 wheel
+        # and the conda-forge builds fail in their ffmpeg filter graph at
+        # runtime, while the image builds torchcodec from source for GH200.
+        from torchcodec.decoders import VideoDecoder
 
         vid_path = os.path.join(self.data_root, video_path)
 
-        vid = decord.VideoReader(vid_path)
-        video_nframes = len(vid)
-        video_fps = vid.get_avg_fps()
+        vid = VideoDecoder(vid_path)
+        video_nframes = vid.metadata.num_frames
+        video_fps = vid.metadata.average_fps
         video_info = {
             'fps': video_fps,
             'n_frames': video_nframes,
@@ -531,8 +537,8 @@ class VsiSuperBase(VideoBaseDataset):
         flag = np.all([os.path.exists(p) for p in frame_paths])
 
         if not flag:
-            images = [vid[i].asnumpy() for i in indices]
-            images = [Image.fromarray(arr) for arr in images]
+            batch = vid.get_frames_at(indices).data
+            images = [Image.fromarray(f.permute(1, 2, 0).cpu().numpy()) for f in batch]
             for im, pth in zip(images, frame_paths):
                 if not os.path.exists(pth) and not video_llm:
                     im.save(pth)
