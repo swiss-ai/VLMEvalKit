@@ -727,7 +727,7 @@ def run_local_mode(args):
                                 dataset_name=dataset_name,
                                 status='done',
                                 skip_reason='invalid_dataset',
-                        )
+                            )
                         continue
 
                 judge_kwargs = get_judge_kwargs(args, dataset=dataset)
