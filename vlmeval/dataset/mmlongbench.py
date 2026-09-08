@@ -6,12 +6,11 @@ import tarfile
 
 import pandas as pd
 
+from ..smp import dump, get_logger, load, toliststr
+from ..smp.file import LMUDataRoot, get_intermediate_file_path
 from .image_base import ImageBaseDataset
 from .utils import build_judge
 from .utils.mmlongbench_metrics import calculate_metrics, parse_output
-from ..smp import dump, get_logger, load, toliststr
-from ..smp.file import get_intermediate_file_path
-from ..smp.file import LMUDataRoot
 
 
 class MMLongBench(ImageBaseDataset):
@@ -19,7 +18,8 @@ class MMLongBench(ImageBaseDataset):
 
     TYPE = 'VQA'
     MODALITY = 'IMAGE'
-    DEFAULT_JUDGE = 'gpt-5.5-2026-04-24'
+    DEFAULT_JUDGE_MODEL = 'gpt-5.5-2026-04-24'
+
     JUDGE_FORMAT = None
     RATING_FORMAT = '{model_name}_{dataset_name}_score.csv'
     HF_REPO_ID = 'ZhaoweiWang/MMLongBench'

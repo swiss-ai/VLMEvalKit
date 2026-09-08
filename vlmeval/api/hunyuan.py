@@ -66,8 +66,11 @@ class HunyuanWrapper(BaseAPI):
         clientProfile = ClientProfile()
         clientProfile.httpProfile = httpProfile
         self.client = hunyuan_client.HunyuanClient(cred, '', clientProfile)
+        masked_key = (str(self.secret_key)[:3] + '...' + str(self.secret_key)[-4:]
+                      if self.secret_key else '***')
         logger.info(
-            f'Using Endpoint: {self.endpoint}; API Secret ID: {self.secret_id}; API Secret Key: {(str(self.secret_key)[:3] + '...' + str(self.secret_key)[-4:]) if self.secret_key else '***'}'
+            f'Using Endpoint: {self.endpoint}; API Secret ID: {self.secret_id}; '
+            f'API Secret Key: {masked_key}'
         )
 
     def use_custom_prompt(self, dataset_name):

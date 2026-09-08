@@ -8,7 +8,6 @@ from urllib.parse import quote
 
 from vlmeval.smp.file import INFER_FAIL_MSG
 
-
 CACHE_SCHEMA_VERSION = 1
 # A response that starts with INFER_FAIL_MSG (or its API-specific suffix) is a
 # wrapper-side failure marker rather than a real prediction, and must not be

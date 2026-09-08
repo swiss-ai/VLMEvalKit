@@ -1,4 +1,3 @@
-import warnings
 import base64
 import io
 import logging
@@ -6,6 +5,7 @@ import math
 import os
 import os.path as osp
 import re
+import warnings
 from urllib.request import urlopen
 
 import pandas as pd
@@ -436,6 +436,8 @@ def MMLongBench_acc(result_file):
 class MMLongBenchDoc(ImageBaseDataset):
 
     TYPE = 'VQA'
+
+    DEFAULT_JUDGE_MODEL = 'gpt-4o'
 
     DATASET_URL = {
         'MMLongBench_DOC': 'https://opencompass.openxlab.space/utils/VLMEval/MMLongBench_DOC.tsv',
