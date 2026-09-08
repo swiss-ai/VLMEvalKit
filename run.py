@@ -15,17 +15,19 @@ from typing import List
 import pandas as pd
 from tabulate import tabulate
 
+from vlmeval.smp.distributed_env import split_cuda_visible_devices
+
 
 # GET the number of GPUs on the node without importing libs like torch
 def get_gpu_list():
     CUDA_VISIBLE_DEVICES = os.environ.get('CUDA_VISIBLE_DEVICES', '')
     if CUDA_VISIBLE_DEVICES != '':
-        gpu_list = [int(x) for x in CUDA_VISIBLE_DEVICES.split(',')]
+        gpu_list = [x.strip() for x in CUDA_VISIBLE_DEVICES.split(',') if x.strip()]
         return gpu_list
     try:
         ps = subprocess.Popen(('nvidia-smi', '--list-gpus'), stdout=subprocess.PIPE)
         output = subprocess.check_output(('wc', '-l'), stdin=ps.stdout)
-        return list(range(int(output)))
+        return [str(i) for i in range(int(output))]
     except Exception:
         return []
 
@@ -33,22 +35,17 @@ def get_gpu_list():
 RANK = int(os.environ.get('RANK', 0))
 WORLD_SIZE = int(os.environ.get('WORLD_SIZE', 1))
 LOCAL_WORLD_SIZE = int(os.environ.get("LOCAL_WORLD_SIZE", 1))
-LOCAL_RANK = int(os.environ.get("LOCAL_RANK", 1))
+LOCAL_RANK = int(os.environ.get("LOCAL_RANK", 0))
 
 GPU_LIST = get_gpu_list()
 if LOCAL_WORLD_SIZE > 1 and len(GPU_LIST):
-    NGPU = len(GPU_LIST)
-    assert NGPU >= LOCAL_WORLD_SIZE, "The number of processes should be less than or equal to the number of GPUs"
-    GPU_PER_PROC = NGPU // LOCAL_WORLD_SIZE
-    DEVICE_START_IDX = GPU_PER_PROC * LOCAL_RANK
-    CUDA_VISIBLE_DEVICES = [str(i) for i in GPU_LIST[DEVICE_START_IDX: DEVICE_START_IDX + GPU_PER_PROC]]
-    CUDA_VISIBLE_DEVICES = ','.join(CUDA_VISIBLE_DEVICES)
-    # Set CUDA_VISIBLE_DEVICES
-    os.environ['CUDA_VISIBLE_DEVICES'] = CUDA_VISIBLE_DEVICES
-    print(
-        f'RANK: {RANK}, LOCAL_RANK: {LOCAL_RANK}, WORLD_SIZE: {WORLD_SIZE},'
-        f'LOCAL_WORLD_SIZE: {LOCAL_WORLD_SIZE}, CUDA_VISIBLE_DEVICES: {CUDA_VISIBLE_DEVICES}'
-    )
+    CUDA_VISIBLE_DEVICES = split_cuda_visible_devices(','.join(GPU_LIST), LOCAL_WORLD_SIZE, LOCAL_RANK)
+    if CUDA_VISIBLE_DEVICES is not None:
+        os.environ['CUDA_VISIBLE_DEVICES'] = CUDA_VISIBLE_DEVICES
+        print(
+            f'RANK: {RANK}, LOCAL_RANK: {LOCAL_RANK}, WORLD_SIZE: {WORLD_SIZE},'
+            f'LOCAL_WORLD_SIZE: {LOCAL_WORLD_SIZE}, CUDA_VISIBLE_DEVICES: {CUDA_VISIBLE_DEVICES}'
+        )
 
 
 from vlmeval.config import supported_VLM
@@ -62,9 +59,14 @@ from vlmeval.smp import (MMBenchOfficialServer, build_eval_id, collect_run_bench
                          get_pred_file_path, githash, is_prediction_complete, load, load_env,
                          prepare_reuse_files, proxy_set, setup_logger, timestr,
                          upsert_dataset_status, upsert_run_status)
+from vlmeval.smp.file import _filter_shadow_dataset_files
 from vlmeval.utils.result_transfer import MMMU_result_transfer, MMTBench_result_transfer
 
 logger = get_logger(__name__)
+
+DEFAULT_RESPONSE_CACHE = (
+    '/capstor/store/cscs/swissai/infra01/vision-datasets/benchmark/VLMEval_Cache'
+)
 
 
 def _format_fail_rate(failed, total):
@@ -371,8 +373,9 @@ def get_judge_kwargs(args, *, dataset):
 
     if args.use_verifier:
         judge_kwargs['use_verifier'] = True
-    if args.use_vllm:
-        judge_kwargs['use_vllm'] = True
+    # --use-vllm targets the evaluated model only. Upstream also forwarded it to
+    # the judge, where it reaches the OpenAI request body and fails every call
+    # (the model key is not always set here, so no reliable gpt-guard exists).
 
     return judge_kwargs
 
@@ -507,6 +510,12 @@ You can launch the evaluation by setting either --data and --model or --config.
         help='Reuse auxiliary files: `all` for infer+eval aux, `infer` for inference-only aux, `none` for no aux.'
     )
     parser.add_argument(
+        '--response-cache',
+        type=str,
+        default=os.environ.get('VLMEVAL_RESPONSE_CACHE', DEFAULT_RESPONSE_CACHE),
+        help='SQLite response cache root for deterministic local inference. Set empty to disable.'
+    )
+    parser.add_argument(
         '--use-vllm', action='store_true', help='use vllm to generate, the flag is only supported in Llama4 for now')
     parser.add_argument('--use-verifier', action='store_true', help='use verifier to evaluate')
 
@@ -625,7 +634,13 @@ def run_local_mode(args):
         logger.info(f'=========== {model_name} ===========')
         model = None
 
-        pred_root_meta = Path(args.work_dir) / model_name
+        # A model passed as a filesystem path is absolute, and Path(work_dir) /
+        # "/abs/path" discards work_dir entirely -- artifacts would be written
+        # into the checkpoint directory, which fails outright for a read-only
+        # shared checkpoint. Keep the component relative, as the API path at
+        # build_eval_id() below already does via replace('/', '--').
+        pred_dir_name = Path(model_name).name if os.path.isabs(model_name) else model_name
+        pred_root_meta = Path(args.work_dir) / pred_dir_name
         pred_root = pred_root_meta / eval_id
         pred_root_meta.mkdir(parents=True, exist_ok=True)
         pred_root.mkdir(parents=True, exist_ok=True)
@@ -712,7 +727,7 @@ def run_local_mode(args):
                                 dataset_name=dataset_name,
                                 status='done',
                                 skip_reason='invalid_dataset',
-                            )
+                        )
                         continue
 
                 judge_kwargs = get_judge_kwargs(args, dataset=dataset)
@@ -811,7 +826,9 @@ def run_local_mode(args):
                             verbose=args.verbose,
                             api_nproc=args.api_nproc,
                             retry_failed=not args.keep_failed,
-                            use_vllm=args.use_vllm)
+                            use_vllm=args.use_vllm,
+                            response_cache=args.response_cache,
+                            cache_run_id=eval_id)
 
                 if WORLD_SIZE > 1:
                     dist.barrier()
@@ -956,9 +973,15 @@ def run_local_mode(args):
                     files = [
                         path for path in pred_root.iterdir()
                         if path.is_file() and (
-                            f'{model_name}_{dataset_name}' in path.name or path.name == 'status.json'
+                            f'{model_name}_{dataset_name}' in path.name
+                            or path.name.startswith(f'{dataset_name}.')
+                            or path.name.startswith(f'{dataset_name}_')
+                            or path.name == 'status.json'
                         )
                     ]
+                    kept = set(_filter_shadow_dataset_files(
+                        [str(path) for path in files], model_name, dataset_name))
+                    files = [path for path in files if str(path) in kept or path.name == 'status.json']
                     # Exclude temporary intermediate files
                     files = [
                         path for path in files
