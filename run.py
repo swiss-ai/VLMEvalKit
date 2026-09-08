@@ -15,19 +15,17 @@ from typing import List
 import pandas as pd
 from tabulate import tabulate
 
-from vlmeval.smp.distributed_env import split_cuda_visible_devices
-
 
 # GET the number of GPUs on the node without importing libs like torch
 def get_gpu_list():
     CUDA_VISIBLE_DEVICES = os.environ.get('CUDA_VISIBLE_DEVICES', '')
     if CUDA_VISIBLE_DEVICES != '':
-        gpu_list = [x.strip() for x in CUDA_VISIBLE_DEVICES.split(',') if x.strip()]
+        gpu_list = [int(x) for x in CUDA_VISIBLE_DEVICES.split(',')]
         return gpu_list
     try:
         ps = subprocess.Popen(('nvidia-smi', '--list-gpus'), stdout=subprocess.PIPE)
         output = subprocess.check_output(('wc', '-l'), stdin=ps.stdout)
-        return [str(i) for i in range(int(output))]
+        return list(range(int(output)))
     except Exception:
         return []
 
@@ -35,20 +33,24 @@ def get_gpu_list():
 RANK = int(os.environ.get('RANK', 0))
 WORLD_SIZE = int(os.environ.get('WORLD_SIZE', 1))
 LOCAL_WORLD_SIZE = int(os.environ.get("LOCAL_WORLD_SIZE", 1))
-LOCAL_RANK = int(os.environ.get("LOCAL_RANK", 0))
+LOCAL_RANK = int(os.environ.get("LOCAL_RANK", 1))
 
 GPU_LIST = get_gpu_list()
 if LOCAL_WORLD_SIZE > 1 and len(GPU_LIST):
-    CUDA_VISIBLE_DEVICES = split_cuda_visible_devices(','.join(GPU_LIST), LOCAL_WORLD_SIZE, LOCAL_RANK)
-    if CUDA_VISIBLE_DEVICES is not None:
-        os.environ['CUDA_VISIBLE_DEVICES'] = CUDA_VISIBLE_DEVICES
-        print(
-            f'RANK: {RANK}, LOCAL_RANK: {LOCAL_RANK}, WORLD_SIZE: {WORLD_SIZE},'
-            f'LOCAL_WORLD_SIZE: {LOCAL_WORLD_SIZE}, CUDA_VISIBLE_DEVICES: {CUDA_VISIBLE_DEVICES}'
-        )
+    NGPU = len(GPU_LIST)
+    assert NGPU >= LOCAL_WORLD_SIZE, "The number of processes should be less than or equal to the number of GPUs"
+    GPU_PER_PROC = NGPU // LOCAL_WORLD_SIZE
+    DEVICE_START_IDX = GPU_PER_PROC * LOCAL_RANK
+    CUDA_VISIBLE_DEVICES = [str(i) for i in GPU_LIST[DEVICE_START_IDX: DEVICE_START_IDX + GPU_PER_PROC]]
+    CUDA_VISIBLE_DEVICES = ','.join(CUDA_VISIBLE_DEVICES)
+    # Set CUDA_VISIBLE_DEVICES
+    os.environ['CUDA_VISIBLE_DEVICES'] = CUDA_VISIBLE_DEVICES
+    print(
+        f'RANK: {RANK}, LOCAL_RANK: {LOCAL_RANK}, WORLD_SIZE: {WORLD_SIZE},'
+        f'LOCAL_WORLD_SIZE: {LOCAL_WORLD_SIZE}, CUDA_VISIBLE_DEVICES: {CUDA_VISIBLE_DEVICES}'
+    )
 
 
-from vlmeval.api import LMDeployAPI
 from vlmeval.config import supported_VLM
 from vlmeval.dataset import build_dataset
 from vlmeval.dataset.video_dataset_config import supported_video_datasets
@@ -57,17 +59,12 @@ from vlmeval.inference_mt import infer_data_job_mt
 from vlmeval.inference_video import infer_data_job_video
 from vlmeval.smp import (MMBenchOfficialServer, build_eval_id, collect_run_benchmark_report,
                          get_eval_file_format, get_logger, get_pred_file_format,
-                         get_pred_file_path, githash, is_prediction_complete, listinstr, load,
-                         load_env, prepare_reuse_files, proxy_set, setup_logger, timestr,
+                         get_pred_file_path, githash, is_prediction_complete, load, load_env,
+                         prepare_reuse_files, proxy_set, setup_logger, timestr,
                          upsert_dataset_status, upsert_run_status)
-from vlmeval.smp.file import _filter_shadow_dataset_files
 from vlmeval.utils.result_transfer import MMMU_result_transfer, MMTBench_result_transfer
 
 logger = get_logger(__name__)
-
-DEFAULT_RESPONSE_CACHE = (
-    '/capstor/store/cscs/swissai/infra01/vision-datasets/benchmark/VLMEval_Cache'
-)
 
 
 def _format_fail_rate(failed, total):
@@ -244,13 +241,6 @@ def get_data_config_dataset_name(dataset_name, data_config):
     return dataset_name
 
 
-def get_judge_dataset_name(dataset_name, data_config):
-    base_name = get_data_config_dataset_name(dataset_name, data_config)
-    if base_name == dataset_name:
-        return dataset_name
-    return f'{dataset_name} {base_name} {base_name.replace("-", "_")}'
-
-
 def get_dataset_build_kwargs(dataset_name, model_name, data_config):
     dataset_kwargs = {}
     base_name = get_data_config_dataset_name(dataset_name, data_config)
@@ -270,11 +260,23 @@ def build_dataset_from_cli(dataset_name, data_config, dataset_kwargs):
     return build_dataset(dataset_name, **dataset_kwargs)
 
 
+def get_api_model_class(model_class):
+    import vlmeval.api
+
+    model_class = model_class or 'LMDeployAPI'
+    if not hasattr(vlmeval.api, model_class):
+        raise ValueError(f'Model class `{model_class}` is not supported in `vlmeval.api`')
+    wrapper = getattr(vlmeval.api, model_class)
+    if not getattr(wrapper, 'is_api', False):
+        raise ValueError(f'Model class `{model_class}` is not an API model wrapper')
+    return wrapper
+
+
 def build_model_from_base_url(args):
-    """Build LMDeployAPI model kwargs from command-line arguments.
+    """Build API model kwargs from command-line arguments.
 
     Used by both local and API modes when --base-url is specified.
-    Returns a dict suitable for LMDeployAPI(**kwargs) or partial(LMDeployAPI, **kwargs).
+    Returns a dict suitable for the selected inference API wrapper.
     """
     model_args = dict(
         model=args.model[0] if isinstance(args.model, list) else args.model,
@@ -310,12 +312,18 @@ def build_model_from_base_url(args):
     return model_args
 
 
-def get_judge_kwargs(dataset_name, dataset_type, args):
-    """Determine judge kwargs based on dataset name and type.
+def validate_default_judge_model(model):
+    if model is None:
+        return
+    if not isinstance(model, str) or not model:
+        raise TypeError('A default judge model must be a non-empty string or None.')
 
-    Uses run.py's logic as the canonical source for dataset-specific judge model
-    assignments, with additional entries from run_api.py (Video-MME).
-    Supports both local and API modes with mode-specific fallbacks.
+
+def get_judge_kwargs(args, *, dataset):
+    """Collect runtime judge kwargs after dataset instantiation.
+
+    Explicit ``--judge`` and ``--judge-args.model`` values take precedence over
+    a benchmark-provided default model.
     """
     # Determine nproc with mode-specific fallback
     if args.judge_api_nproc is not None:
@@ -329,13 +337,19 @@ def get_judge_kwargs(dataset_name, dataset_type, args):
     else:
         retry = args.retry
 
+    judge_args = json.loads(args.judge_args) if args.judge_args else {}
     judge_kwargs = {
         'nproc': nproc,
         'verbose': args.verbose,
         'retry': retry,
         'timeout': args.judge_timeout,
-        **(json.loads(args.judge_args) if args.judge_args else {}),
+        **judge_args,
     }
+    # Keep track of whether ``model`` came from --judge-args.  A model in
+    # judge_args is an explicit user choice and must not be confused with a
+    # model that the benchmark resolver may add later.
+    model_from_judge_args = 'model' in judge_args
+    judge_args_model = judge_args.get('model')
 
     if args.judge_base_url:
         judge_kwargs['api_base'] = f"{args.judge_base_url.rstrip('/')}/chat/completions"
@@ -345,81 +359,20 @@ def get_judge_kwargs(dataset_name, dataset_type, args):
     if args.judge is not None:
         judge_kwargs['model'] = args.judge
     else:
-        if dataset_name == '3DSRBench':
-            judge_kwargs['model'] = 'exact_matching'
-        elif dataset_type in ['MCQ', 'Y/N', 'MCQ_MMMU_Pro'] or listinstr(
-            ['moviechat1k', 'mme-reasoning'], dataset_name.lower()
-        ):
-            if listinstr(['WeMath', 'MME-Reasoning'], dataset_name):
-                judge_kwargs['model'] = 'gpt-4o-mini'
-            elif listinstr(['VisualPuzzles'], dataset_name):
-                judge_kwargs['model'] = 'exact_matching'
-            elif listinstr(['PuzzleVQA'], dataset_name):
-                judge_kwargs['model'] = 'exact_matching'
-            elif listinstr(['VisuLogic'], dataset_name):
-                judge_kwargs['model'] = 'exact_matching'
-            else:
-                judge_kwargs['model'] = 'gpt-4o-mini'
-        elif listinstr(['MMVet', 'LLaVABench', 'MMBench_Video'], dataset_name):
-            if listinstr(['LLaVABench_KO'], dataset_name):
-                judge_kwargs['model'] = 'gpt-4o-0806'
-            else:
-                judge_kwargs['model'] = 'gpt-4-turbo'
-        elif listinstr(['VGRPBench'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o'
-        elif listinstr(
-            ['MathVista', 'MathVerse', 'MathVision', 'LENS', 'DynaMath', 'VL-RewardBench',
-             'LogicVista', 'MOAT', 'OCR_Reasoning', 'VTCBench', 'Asclepius',
-             'MMSafetyBench', 'MSSBench', 'SIUO', 'SIUO_GEN', 'XSTest', 'Flames'], dataset_name
-        ):
-            judge_kwargs['model'] = 'gpt-4o-mini'
-        elif listinstr(['OlympiadBench'], dataset_name):
-            use_api_judger = judge_kwargs.get("olympiad_use_api_judger", False)
-            if use_api_judger:
-                judge_kwargs['model'] = 'gpt-4o-mini'
-        elif listinstr(
-            ['MMLongBench_32K', 'MMLongBench_128K', 'MMLongBench_256K', 'MMLongBench_512K'], dataset_name
-        ):
-            judge_kwargs['model'] = 'gpt-5.5-2026-04-24'
-        elif listinstr(
-            ['MMLongBench', 'MMDU', 'DUDE', 'SLIDEVQA', 'MIA-Bench',
-             'WildVision', 'MMAlignBench', 'MM-IFEval'], dataset_name
-        ):
-            judge_kwargs['model'] = 'gpt-4o'
-        elif listinstr(['ChartMimic'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o'
-        elif listinstr(['VDC'], dataset_name):
-            judge_kwargs['model'] = 'llama31-8b'
-        elif listinstr(['Video_MMLU_QA', 'Video_MMLU_CAP'], dataset_name):
-            judge_kwargs['model'] = 'qwen-72b'
-        elif listinstr(['MMVMBench'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o'
-        elif listinstr(['CVQA_EN', 'CVQA_LOC'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4.1'
-        elif listinstr(['M4Bench'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o'
-        elif listinstr(['AyaVisionBench'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4.1'
-        elif listinstr(['MathCanvas'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4.1-2025-04-14'
-        elif listinstr(['MMReason'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4.1'
-        elif listinstr(['CoreCognition'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4.1'
-        elif listinstr(['WorldVQA'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o-1120'
-        elif listinstr(['Video-MME'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o-mini'
-        elif listinstr(['MaCBench'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o-mini'
-        elif listinstr(['SciDocBench'], dataset_name):
-            judge_kwargs['model'] = 'gpt-4o-mini'
+        default_model = dataset.get_default_judge_model(judge_kwargs)
+        validate_default_judge_model(default_model)
+        if default_model is not None and not model_from_judge_args:
+            judge_kwargs['model'] = default_model
+        elif model_from_judge_args:
+            # A dataset-specific resolver is allowed to inspect judge_args,
+            # but its default must not replace an explicitly requested model.
+            # Restore it as well in case a custom resolver mutates kwargs.
+            judge_kwargs['model'] = judge_args_model
 
     if args.use_verifier:
         judge_kwargs['use_verifier'] = True
-    # --use-vllm targets the evaluated model only. Upstream also forwarded it to
-    # the judge, where it reaches the OpenAI request body and fails every call
-    # (the model key is not always set here, so no reliable gpt-guard exists).
+    if args.use_vllm:
+        judge_kwargs['use_vllm'] = True
 
     return judge_kwargs
 
@@ -554,12 +507,6 @@ You can launch the evaluation by setting either --data and --model or --config.
         help='Reuse auxiliary files: `all` for infer+eval aux, `infer` for inference-only aux, `none` for no aux.'
     )
     parser.add_argument(
-        '--response-cache',
-        type=str,
-        default=os.environ.get('VLMEVAL_RESPONSE_CACHE', DEFAULT_RESPONSE_CACHE),
-        help='SQLite response cache root for deterministic local inference. Set empty to disable.'
-    )
-    parser.add_argument(
         '--use-vllm', action='store_true', help='use vllm to generate, the flag is only supported in Llama4 for now')
     parser.add_argument('--use-verifier', action='store_true', help='use verifier to evaluate')
 
@@ -578,7 +525,9 @@ You can launch the evaluation by setting either --data and --model or --config.
     # Inference Model Args (when --base-url is specified)
     parser.add_argument('--base-url', type=str, default=None,
                         help='Base URL of OpenAI-compatible API (e.g. http://localhost:8080/v1). '
-                             'If set, LMDeployAPI is used for inference without modifying config.py.')
+                             'If set, --model-class is used for inference without modifying config.py.')
+    parser.add_argument('--model-class', type=str, default='LMDeployAPI',
+                        help='API model class in vlmeval.api for inference when --base-url is set.')
     parser.add_argument('--key', type=str, default='sk-admin', help='API key for inference model')
     parser.add_argument('--thinker', action='store_true',
                         help='[Deprecated] Enable thinking mode: doubles timeout and max_tokens.')
@@ -676,13 +625,7 @@ def run_local_mode(args):
         logger.info(f'=========== {model_name} ===========')
         model = None
 
-        # A model passed as a filesystem path is absolute, and Path(work_dir) /
-        # "/abs/path" discards work_dir entirely -- artifacts would be written
-        # into the checkpoint directory, which fails outright for a read-only
-        # shared checkpoint. Keep the component relative, as the API path at
-        # build_eval_id() below already does via replace('/', '--').
-        pred_dir_name = Path(model_name).name if os.path.isabs(model_name) else model_name
-        pred_root_meta = Path(args.work_dir) / pred_dir_name
+        pred_root_meta = Path(args.work_dir) / model_name
         pred_root = pred_root_meta / eval_id
         pred_root_meta.mkdir(parents=True, exist_ok=True)
         pred_root.mkdir(parents=True, exist_ok=True)
@@ -707,9 +650,10 @@ def run_local_mode(args):
         if use_config:
             model = build_model_from_config(cfg['model'], model_name, args.use_vllm)
         elif args.base_url:
+            api_model_class = get_api_model_class(args.model_class)
             model_args = build_model_from_base_url(args)
             model_args['model'] = model_name
-            model = LMDeployAPI(**model_args)
+            model = api_model_class(**model_args)
 
         for _, dataset_name in enumerate(args.data):
             logger.info(f'----------- {dataset_name} -----------')
@@ -768,11 +712,10 @@ def run_local_mode(args):
                                 dataset_name=dataset_name,
                                 status='done',
                                 skip_reason='invalid_dataset',
-                        )
+                            )
                         continue
 
-                judge_dataset_name = get_judge_dataset_name(dataset_name, args.data_config)
-                judge_kwargs = get_judge_kwargs(judge_dataset_name, dataset.TYPE, args)
+                judge_kwargs = get_judge_kwargs(args, dataset=dataset)
                 judge_model = judge_kwargs.get('model', '')
 
                 if RANK == 0:
@@ -868,9 +811,7 @@ def run_local_mode(args):
                             verbose=args.verbose,
                             api_nproc=args.api_nproc,
                             retry_failed=not args.keep_failed,
-                            use_vllm=args.use_vllm,
-                            response_cache=args.response_cache,
-                            cache_run_id=eval_id)
+                            use_vllm=args.use_vllm)
 
                 if WORLD_SIZE > 1:
                     dist.barrier()
@@ -1015,15 +956,9 @@ def run_local_mode(args):
                     files = [
                         path for path in pred_root.iterdir()
                         if path.is_file() and (
-                            f'{model_name}_{dataset_name}' in path.name
-                            or path.name.startswith(f'{dataset_name}.')
-                            or path.name.startswith(f'{dataset_name}_')
-                            or path.name == 'status.json'
+                            f'{model_name}_{dataset_name}' in path.name or path.name == 'status.json'
                         )
                     ]
-                    kept = set(_filter_shadow_dataset_files(
-                        [str(path) for path in files], model_name, dataset_name))
-                    files = [path for path in files if str(path) in kept or path.name == 'status.json']
                     # Exclude temporary intermediate files
                     files = [
                         path for path in files
@@ -1114,8 +1049,9 @@ def run_api_mode(args):
 
     # Build model args (shared across all datasets)
     if args.base_url is not None:
+        api_model_class = get_api_model_class(args.model_class)
         model_args = build_model_from_base_url(args)
-        model_builder = partial(LMDeployAPI, **model_args)
+        model_builder = partial(api_model_class, **model_args)
     else:
         assert model_name in supported_VLM, \
             f'Model "{model_name}" not found in supported_VLM. Consider using --base-url to specify an API endpoint.'
@@ -1163,8 +1099,7 @@ def run_api_mode(args):
                 logger.info(f'{ds_name} requires special handling, skipped in pipeline.')
                 continue
 
-            judge_dataset_name = get_judge_dataset_name(ds_name, args.data_config)
-            judge_kwargs = get_judge_kwargs(judge_dataset_name, dataset.TYPE, args)
+            judge_kwargs = get_judge_kwargs(args, dataset=dataset)
             judge_model = judge_kwargs.get('model', '')
             logger.info(f'Judge kwargs: {judge_kwargs}')
 
